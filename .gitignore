@@ -9,3 +9,12 @@ dist/
 .import_linter_cache/
 .env*
 !.env.example
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+output/
+secrets/

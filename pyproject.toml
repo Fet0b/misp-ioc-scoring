@@ -24,3 +24,96 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.importlinter]
+root_packages = ["misp_ioc_scoring", "tools"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "collection domain stays independent"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.collection.domain"]
+forbidden_modules = ["misp_ioc_scoring.collection.application", "misp_ioc_scoring.collection.adapters", "misp_ioc_scoring.collection.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "collection application uses ports"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.collection.application"]
+forbidden_modules = ["misp_ioc_scoring.collection.adapters", "misp_ioc_scoring.collection.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "scoring domain stays independent"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.scoring.domain"]
+forbidden_modules = ["misp_ioc_scoring.scoring.application", "misp_ioc_scoring.scoring.adapters", "misp_ioc_scoring.scoring.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "scoring application uses ports"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.scoring.application"]
+forbidden_modules = ["misp_ioc_scoring.scoring.adapters", "misp_ioc_scoring.scoring.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "sharing domain stays independent"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.sharing.domain"]
+forbidden_modules = ["misp_ioc_scoring.sharing.application", "misp_ioc_scoring.sharing.adapters", "misp_ioc_scoring.sharing.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "sharing application uses ports"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.sharing.application"]
+forbidden_modules = ["misp_ioc_scoring.sharing.adapters", "misp_ioc_scoring.sharing.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "shared dependency direction"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.shared"]
+forbidden_modules = ["misp_ioc_scoring.collection", "misp_ioc_scoring.scoring", "misp_ioc_scoring.sharing", "misp_ioc_scoring.entrypoints"]
+
+[[tool.importlinter.contracts]]
+name = "collection dependency direction"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.collection"]
+forbidden_modules = ["misp_ioc_scoring.scoring", "misp_ioc_scoring.sharing", "misp_ioc_scoring.entrypoints"]
+
+[[tool.importlinter.contracts]]
+name = "scoring dependency direction"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.scoring"]
+forbidden_modules = ["misp_ioc_scoring.sharing", "misp_ioc_scoring.entrypoints"]
+
+[[tool.importlinter.contracts]]
+name = "sharing dependency direction"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.sharing"]
+forbidden_modules = ["misp_ioc_scoring.entrypoints"]
+
+[[tool.importlinter.contracts]]
+name = "Tools read by reflection only"
+type = "forbidden"
+source_modules = ["tools"]
+forbidden_modules = ["misp_ioc_scoring.collection", "misp_ioc_scoring.scoring", "misp_ioc_scoring.sharing"]
+
+[[tool.importlinter.contracts]]
+name = "collection internals only through api"
+type = "protected"
+protected_modules = ["misp_ioc_scoring.collection.domain", "misp_ioc_scoring.collection.application", "misp_ioc_scoring.collection.adapters", "misp_ioc_scoring.collection.infrastructure"]
+allowed_importers = ["misp_ioc_scoring.collection", "misp_ioc_scoring.entrypoints"]
+
+[[tool.importlinter.contracts]]
+name = "scoring internals only through api"
+type = "protected"
+protected_modules = ["misp_ioc_scoring.scoring.domain", "misp_ioc_scoring.scoring.application", "misp_ioc_scoring.scoring.adapters", "misp_ioc_scoring.scoring.infrastructure"]
+allowed_importers = ["misp_ioc_scoring.scoring", "misp_ioc_scoring.entrypoints"]
+
+[[tool.importlinter.contracts]]
+name = "sharing internals only through api"
+type = "protected"
+protected_modules = ["misp_ioc_scoring.sharing.domain", "misp_ioc_scoring.sharing.application", "misp_ioc_scoring.sharing.adapters", "misp_ioc_scoring.sharing.infrastructure"]
+allowed_importers = ["misp_ioc_scoring.sharing", "misp_ioc_scoring.entrypoints"]
+
+[[tool.importlinter.contracts]]
+name = "Worker composition roots stay independent"
+type = "independence"
+modules = ["misp_ioc_scoring.entrypoints.collector", "misp_ioc_scoring.entrypoints.scoring_sharing"]

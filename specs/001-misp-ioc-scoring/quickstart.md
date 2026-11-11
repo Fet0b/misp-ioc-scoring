@@ -92,3 +92,25 @@ definidos na implementação. Não executar testes de publicação contra peers 
 - [Modelo de dados](./data-model.md)
 - [Contrato de coleta](./contracts/misp-collection.md)
 - [Contrato de compartilhamento](./contracts/misp-sharing.md)
+
+
+## MVP de coleta implementado (2026-11-11)
+
+A coleta e a exportação estão implementadas; scoring e compartilhamento seguem
+pendentes. O perfil `scoring` fica desativado por padrão. Preparação de segredos,
+formatos JSON de endpoints/cadências e comandos de consulta estão em
+[README.md](../../README.md).
+
+```bash
+docker compose up -d --build database migrate collector
+docker compose ps -a
+docker compose logs --tail=30 collector
+docker compose --profile tools run --rm tools
+.venv/bin/python -m pytest
+```
+
+A primeira coleta começa na inicialização. Banco e coletor têm reinício automático;
+o volume `postgres-data` preserva os dados. Para a integração automatizada, definir
+`TEST_DATABASE_URL` para uma instância PostgreSQL separada e descartável, com nome de
+banco terminado em `_test`; os testes criam e removem schemas e papéis nesse ambiente.
+Não usar o cluster de produção para os testes.

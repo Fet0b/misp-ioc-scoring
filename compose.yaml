@@ -1,50 +1,119 @@
 services:
   database:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+    secrets:
+      - postgres_admin_password
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  collector:
+  migrate:
     build: .
-    command: ["python", "-m", "misp_ioc_scoring.entrypoints.collector"]
-    env_file: .env
+    command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: ${COLLECTOR_DATABASE_URL:?Set COLLECTOR_DATABASE_URL}
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL}
+      COLLECTOR_DB_PASSWORD_SECRET_REF: file:/run/secrets/collector_db_password
+      SCORING_DB_PASSWORD_SECRET_REF: file:/run/secrets/scoring_db_password
+      OBSERVER_DB_PASSWORD_SECRET_REF: file:/run/secrets/observer_db_password
+    secrets:
+      - collector_db_password
+      - scoring_db_password
+      - observer_db_password
     depends_on:
       database:
         condition: service_healthy
 
+  collector:
+    restart: unless-stopped
+    build: .
+    command: ["python", "-m", "misp_ioc_scoring.entrypoints.collector"]
+    environment:
+      DATABASE_URL: ${COLLECTOR_DATABASE_URL:?Set COLLECTOR_DATABASE_URL}
+      MISP_ENDPOINTS_SECRET_REF: file:/run/secrets/collection_endpoints
+      COLLECTION_CADENCE_SECRET_REF: file:/run/secrets/collection_cadence
+      MISP_TO_IDS_ONLY: ${MISP_TO_IDS_ONLY:-true}
+      COLLECTION_OVERLAP_MINUTES: ${COLLECTION_OVERLAP_MINUTES:?Set COLLECTION_OVERLAP_MINUTES}
+      COLLECTION_RETRY_ATTEMPTS: ${COLLECTION_RETRY_ATTEMPTS:?Set COLLECTION_RETRY_ATTEMPTS}
+      COLLECTION_RETRY_BACKOFF_SECONDS: ${COLLECTION_RETRY_BACKOFF_SECONDS:?Set COLLECTION_RETRY_BACKOFF_SECONDS}
+      RECONCILE_MAX_REMOVAL_RATIO: ${RECONCILE_MAX_REMOVAL_RATIO:?Set RECONCILE_MAX_REMOVAL_RATIO}
+      MISP_REQUEST_TIMEOUT_SECONDS: ${MISP_REQUEST_TIMEOUT_SECONDS:?Set MISP_REQUEST_TIMEOUT_SECONDS}
+    secrets:
+      - collection_endpoints
+      - collection_cadence
+    volumes:
+      - ${COLLECTOR_CREDENTIALS_DIR:?Set COLLECTOR_CREDENTIALS_DIR}:/run/misp-credentials:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   scoring-sharing:
+    profiles: [scoring]
     build: .
     command: ["python", "-m", "misp_ioc_scoring.entrypoints.scoring_sharing"]
-    env_file: .env
     environment:
       DATABASE_URL: ${SCORING_DATABASE_URL:?Set SCORING_DATABASE_URL}
-      MISP_PEERS_SECRET_REF: ${MISP_PEERS_SECRET_REF:?Set MISP_PEERS_SECRET_REF}
-      PEER_MINIMUM_SCORES_SECRET_REF: ${PEER_MINIMUM_SCORES_SECRET_REF:?Set PEER_MINIMUM_SCORES_SECRET_REF}
-      PEER_CREDENTIALS_SECRET_REF: ${PEER_CREDENTIALS_SECRET_REF:?Set PEER_CREDENTIALS_SECRET_REF}
+      SCORING_DAILY_CRON: ${SCORING_DAILY_CRON:?Set SCORING_DAILY_CRON}
+      SHARING_INTERVAL_SECONDS: ${SHARING_INTERVAL_SECONDS:?Set SHARING_INTERVAL_SECONDS}
+      SHARING_RETRY_ATTEMPTS: ${SHARING_RETRY_ATTEMPTS:?Set SHARING_RETRY_ATTEMPTS}
+      SHARING_RETRY_BACKOFF_SECONDS: ${SHARING_RETRY_BACKOFF_SECONDS:?Set SHARING_RETRY_BACKOFF_SECONDS}
+      MISP_REQUEST_TIMEOUT_SECONDS: ${MISP_REQUEST_TIMEOUT_SECONDS:?Set MISP_REQUEST_TIMEOUT_SECONDS}
+      SCORE_MAX_AGE_HOURS: ${SCORE_MAX_AGE_HOURS:-48}
+      CARIOCA_CONFIG_PATH: ${CARIOCA_CONFIG_PATH:?Set CARIOCA_CONFIG_PATH}
+      CARIOCA_TOP_N: ${CARIOCA_TOP_N:-}
+      MISP_PEERS_SECRET_REF: file:/run/secrets/misp_peers
+      PEER_MINIMUM_SCORES_SECRET_REF: file:/run/secrets/peer_minimum_scores
+      PEER_CREDENTIALS_SECRET_REF: file:/run/secrets/peer_credentials
+    secrets:
+      - misp_peers
+      - peer_minimum_scores
+      - peer_credentials
     depends_on:
-      database:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   tools:
     build: .
     profiles: [tools]
     command: ["python", "tools/export_observability.py"]
-    env_file: .env
     environment:
       DATABASE_URL: ${OBSERVER_DATABASE_URL:?Set OBSERVER_DATABASE_URL}
+      EXPORT_OUTPUT_DIR: /output
+      EXPORT_MAX_ROWS_PER_SHEET: ${EXPORT_MAX_ROWS_PER_SHEET:-1000000}
+      SCORE_MAX_AGE_HOURS: ${SCORE_MAX_AGE_HOURS:-48}
     volumes:
-      - ./output:/output
+      - ${EXPORT_OUTPUT_DIR:-./output}:/output
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres-data:
+
+secrets:
+  postgres_admin_password:
+    file: ${POSTGRES_ADMIN_PASSWORD_FILE:?Set POSTGRES_ADMIN_PASSWORD_FILE}
+  collector_db_password:
+    file: ${COLLECTOR_DB_PASSWORD_FILE:?Set COLLECTOR_DB_PASSWORD_FILE}
+  scoring_db_password:
+    file: ${SCORING_DB_PASSWORD_FILE:?Set SCORING_DB_PASSWORD_FILE}
+  observer_db_password:
+    file: ${OBSERVER_DB_PASSWORD_FILE:?Set OBSERVER_DB_PASSWORD_FILE}
+  collection_endpoints:
+    file: ${COLLECTION_ENDPOINTS_FILE:?Set COLLECTION_ENDPOINTS_FILE}
+  collection_cadence:
+    file: ${COLLECTION_CADENCE_FILE:?Set COLLECTION_CADENCE_FILE}
+  misp_peers:
+    file: ${MISP_PEERS_FILE:?Set MISP_PEERS_FILE}
+  peer_minimum_scores:
+    file: ${PEER_MINIMUM_SCORES_FILE:?Set PEER_MINIMUM_SCORES_FILE}
+  peer_credentials:
+    file: ${PEER_CREDENTIALS_FILE:?Set PEER_CREDENTIALS_FILE}

@@ -7,3 +7,11 @@ __pycache__
 .pytest_cache
 *.py[cod]
 *.log
+output/
+secrets/
+tests/
+.specify/
+.claude/
+*.xlsx
+Dockerfile*
+.dockerignore
