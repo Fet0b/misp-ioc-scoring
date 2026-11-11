@@ -9,6 +9,8 @@ domínio IOC, sem acoplar regras de scoring ao formato de resposta externo.
 
 - Endpoint MISP configurado e habilitado, credencial autorizada e versão/API detectada.
 - Cadência, filtros, tamanho de página e checkpoint da última janela concluída.
+- Filtro de acionabilidade: por padrão apenas atributos `to_ids=true` (FR-026),
+  configurável por endpoint.
 - O worker executa a janela de forma síncrona; cada endpoint tem estado e frequência
   independentes.
 
@@ -28,22 +30,32 @@ domínio IOC, sem acoplar regras de scoring ao formato de resposta externo.
 ## Saída e falhas
 
 - Sucesso: lote persistido, contadores e checkpoint integralmente processado.
-- Payload inválido/não suportado: erro identificável, valor não convertido em IOC
-  válido; os demais registros podem continuar se a execução registrar falhas parciais
+- Payload inválido/não suportado: erro identificável e Rejeição de indicador persistida
+  (origem, valor bruto, tipo MISP, motivo e momento; sem criar IOC e sem repetir o valor
+  em logs ou mensagens), com uma rejeição por origem e motivo ao recoletar; os demais registros podem continuar se a execução registrar falhas parciais
   sem avançar checkpoint além do que foi concluído com segurança.
 - Indisponibilidade, rate limit ou falha de página: registrar status, aplicar backoff
   limitado e preservar checkpoint para repetição segura.
 - Mudança concorrente no conjunto de resultados: reconciliação por UUID e timestamp;
   a próxima janela sobreposta deve poder recuperar alterações perdidas.
 - Mudanças e remoções/expiração/alterações de `to_ids` devem ser reconciliadas para
-  evitar conservar dados ativos que a origem já revogou.
+  evitar conservar dados ativos que a origem já revogou: atributos que saem do filtro
+  recebem `removed_at`, sem apagar a proveniência.
+- Se a reconciliação marcar mais atributos como removidos do que o limite configurado
+  (`RECONCILE_MAX_REMOVAL_RATIO`), recusar a aplicação e sinalizar erro ao operador, sem
+  avançar o checkpoint.
+- Coletar, além dos atributos, o `orgc_uuid` do evento e as entradas das warninglists
+  habilitadas, preservando a instância de origem. Entradas de tipo regex ou substring são
+  gravadas como não suportadas (nunca avaliadas) e expostas ao operador; só igualdade
+  exata, CIDR e hostname/subdomínio são usados na pertinência (FR-027).
 - Credenciais não aparecem no log; erros contêm endpoint e contexto não sensível.
 
 ## Compatibilidade e segurança
 
 - Consultar a versão da instância e usar o OpenAPI da instância como referência final.
 - Nunca assumir que IDs numéricos são portáveis entre instâncias.
-- Não tratar ausência em warninglist como prova de segurança.
+- Não tratar ausência em warninglist como prova de segurança; presença é só um motivo de
+  inelegibilidade para compartilhamento (FR-027).
 - Revalidar filtros e permissões antes de ativar uma nova versão do adaptador.
 
 ## Verificação do contrato

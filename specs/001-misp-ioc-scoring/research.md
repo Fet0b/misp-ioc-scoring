@@ -91,49 +91,100 @@
 
 ### Algoritmo CARIOCA e parâmetros ausentes
 
-- **Decisão**: Implementar as fórmulas e mapeamentos publicados; armazenar configuração
-  explícita e versionada para os parâmetros ausentes. Não calcular score se a
-  configuração necessária estiver incompleta.
-- **Racional**: O artigo não especifica parâmetros suficientes para reprodução
-  independente, incluindo a fórmula/parametrização do FeedRank, o método de ajuste das
-  distribuições por categoria, pesos padrão de categorias/eventos e alguns casos de
-  valores ausentes. Não definir defaults silenciosos protege a reprodutibilidade.
-- **Alternativas consideradas**: Valores provisórios do projeto poderiam ser usados
-  apenas após aprovação explícita e registro de versão; não são adotados por esta
-  decisão.
+- **Decisão**: Implementar as fórmulas publicadas; os parâmetros que a publicação não
+  especifica ficam em configuração explícita, versionada e aprovada (FR-012). Não
+  calcular score se a configuração estiver incompleta. As lacunas foram resolvidas nas
+  clarificações de 2026-11-10 (ver abaixo).
+- **Racional**: O artigo não especifica o suficiente para reprodução independente:
+  FeedRank, estimador de σ das distribuições do CADE, escala do CADE e população
+  ranqueada. Sem defaults silenciosos protege-se a reprodutibilidade.
+- **Alternativas consideradas**: Valores provisórios sem aprovação foram rejeitados.
 - **Fonte**: Delvecchio et al., “CARIOCA: prioritizing the use of IoC by threats
   assessment shared on the MISP platform”, *International Journal of Information
-  Security* 24(2), 2025, [DOI](https://doi.org/10.1007/s10207-025-01006-2).
+  Security* 24(2), 2025, [DOI](https://doi.org/10.1007/s10207-025-01006-2). Evidência
+  empírica: experimentos do projeto sobre um MISP de estudos 2.5.51 (515.151 atributos,
+  1.613 eventos, 27 organizações), registrados no Caderno de Projetos (Notion).
 
-#### Fórmulas e critérios identificados na publicação
+#### Fórmulas e critérios (publicação)
 
 - `threat_level_id`: Undefined=0, Low=33, Medium=66, High=100.
 - `analysis`: Initial=0, Ongoing=50, Complete=100.
-- Para categoria de evento `i`, `CategoryScore_i = (1 - PDF_i(N)) * 100`;
-  `CADE = Σ β_i * CategoryScore_i`, com pesos configuráveis que somam 1.
-- `EventScore = α₁ * ThreatLevel + α₂ * StatusAnalysis + α₃ * CADE`, com pesos não
-  negativos que somam 1.
-- Frescor do atributo: para `t < T_a`,
-  `AttributeScore(t) = (1 - (t/T_a)^(1/D_a)) * 100`, e score 0 em `t >= T_a`.
-  A tabela do artigo fornece HASH (`D_a=2`, `T_a=60` dias), IP (`D_a=1.5`,
-  `T_a=7` dias) e Domain (`D_a=0.7`, `T_a=365` dias).
-- A prioridade final combina FeedRank, EventScore e AttributeScore via normalização
-  MinMax e SPOTIS, com pesos iguais no artigo; transforma a distância em score
-  `PriorityScore = (1 - SPOTIS(eval(IoC))) * 100`, em que maior é mais relevante.
-- CADE usa categorias de atributos MISP e distribuições de frequência por categoria.
-  A distribuição deve ser recalculada/atualizada quando a base MISP usada na calibração
-  mudar, conforme estratégia explícita e versionada.
-- O artigo não especifica a regra de publicação do score de volta ao MISP. A política
-  deste projeto exige score mínimo configurável por peer e continua sujeita às
-  permissões e regras nativas de distribuição do MISP.
-- A publicação trata o cálculo local como síncrono, mas a sincronização push de MISP é
-  baseada em jobs: uma solicitação de publicação não confirma entrega ao peer. O
-  estado de compartilhamento precisa distinguir envio solicitado, confirmado e
-  desconhecido/falho.
+- Categoria `i` de evento: `CategoryScore_i = (1 − PDF_i(N)) · 100`;
+  `CADE = Σ β_i · CategoryScore_i` (16 categorias, β_i = 1/16 na configuração).
+- `EventScore = 0,4·ThreatLevel + 0,2·StatusAnalysis + 0,4·CADE` (Tabela 4).
+- Frescor: para `t < T_a`, `A(t) = (1 − (t/T_a)^(1/D_a))·100`; 0 caso contrário.
+  HASH (2; 60 dias), IP (1,5; 7 dias), Domain (0,7; 365 dias). Tipos fora dos três
+  grupos têm A = 0.
+- Prioridade: MinMax e SPOTIS com ponto ideal 100 e pesos 1/3; com esses parâmetros
+  `P = (S' + E' + A')/3`.
+
+#### Decisões do projeto para as lacunas (clarificações 2026-11-10)
+
+- **Densidade do CADE**: semi-normal normalizada para valer 1 em zero,
+  `CS_i = (1 − e^(−n_i²/(2σ_i²)))·100`. Caso σ = 0: regra explícita na configuração.
+- **σ**: estimador **robusto** a eventos extremos. Com o desvio-padrão populacional,
+  σ(network activity) = 917 (a Fig. 3 do artigo sugere ≈ 1,4), o que anula eventos
+  pequenos. Candidatos: limite no percentil 95 ou escala log; o limite no percentil 95
+  dá σ = 0 em categorias raras, logo exige regra para esse caso. Método **ainda a
+  decidir** (tarefa de pesquisa com dados reais).
+- **Escala do CADE**: MinMax entre eventos (topo = 100, como a Tabela 5 do artigo). O
+  valor 5,7994 da Tabela 6 não é reproduzível só com as equações publicadas.
+- **FeedRank**: o MISP não registra o feed de origem; usa-se `orgc` como proxy. Cada
+  par (tipo, valor em minúsculas) é creditado à organização que publicou primeiro
+  (menor timestamp); o grafo dirigido "quem publicou depois aponta para quem publicou
+  antes" (peso = pares em comum) recebe PageRank (0,85; 50 iterações); `V_o = 50·c_o·100
+  + 50·MinMax(PR)_o`; `Source = MinMax(V_o)` entre organizações. Limitação: mede volume e
+  pioneirismo, não qualidade.
+- **População e seleção**: só IOCs de tipo com decaimento e não expirados (no artigo,
+  510.516 IOCs válidos); top-N (20.000 no artigo, pela capacidade do IDS/IPS) combinado
+  com limiar. O limiar absoluto sozinho é instável: com o mesmo MISP, 28 ou 61.757
+  pares passaram de 70 conforme o filtro de coleta.
+- **Coleta**: só `to_ids=true` (IOCs acionáveis, como no artigo). Atributos de contexto
+  alteram Source, CADE e Event, então o resultado é sensível a essa escolha (a reportar
+  como ameaça à validade).
+- **Tempo**: o frescor usa `as_of`, não o relógio, para manter determinismo; sem feeds
+  ativos a nota cai a cada dia.
+- **Warninglists**: IOC mantém score, porém inelegível para compartilhamento. A
+  pertinência usa igualdade exata, CIDR e hostname/subdomínio; regex e substring não são
+  avaliados (evita custo e risco ao aplicar padrões externos a valores não confiáveis) e
+  ficam registrados como não suportados.
+- **Candidato a re-scoring**: só rastreabilidade. Como σ, MinMax e FeedRank dependem da
+  população, reaproveitar resultados de IOCs não afetados não é seguro; o recálculo
+  diário é sempre completo.
+- **Configuração operacional**: peers e mínimos por variáveis de ambiente do container de
+  scoring/sharing, aplicadas no reinício, com política efetiva registrada.
+- **Indicadores rejeitados**: persistidos por origem e motivo (uma linha por atributo e
+  motivo), sem criar IOC e sem repetir o valor bruto em logs; o operador lista e conta
+  por motivo e origem.
+- **Validade do score**: o compartilhamento usa a última execução bem-sucedida e suspende
+  após 48 horas, evitando enviar IOCs com base em scores muito antigos sem parar tudo por
+  uma falha isolada.
+- **Dependência de desenvolvimento**: import-linter impõe as fronteiras entre módulos de
+  forma automática no CI (necessidade: o monolito modular só é verificável com um
+  verificador de imports); sem ele, as regras do plano seriam só convenção.
+- **Observabilidade**: sem CLI, API nem UI. Um script exporta o banco para Excel (uma aba
+  por tabela, mais uma aba de métricas calculadas) com papel de banco somente leitura. Por
+  ser relatório, lê por reflexão e fica fora dos módulos. Excel limita cada aba a
+  1.048.576 linhas, então há limite configurável sem truncar em silêncio. Valores de dados
+  externos (por exemplo `raw_value` das rejeições) são escritos como texto e neutralizados
+  contra interpretação como fórmula (princípio IV). Dependência nova: openpyxl, escolhida
+  por escrever `.xlsx` sem precisar do Excel instalado.
+- **Colunas secretas**: reflexão não sabe quais colunas são secretas, então a convenção é o
+  comentário PostgreSQL `secret`, aplicada nos modelos e conferida por um teste de
+  arquitetura que falha se uma coluna com nome sensível não tiver o comentário. O arquivo
+  exportado é gravado com permissão 0600 e em modo somente-escrita do openpyxl.
+- **Parâmetros temporais**: todos por variáveis de ambiente validadas na inicialização;
+  mudar exige reiniciar o container.
+- **Desempenho**: meta de 1 hora (SC-011) validada por benchmark; processamento em
+  memória ou em SQL decidido com dados reais.
+- A publicação trata o cálculo local como síncrono, mas o push de MISP é baseado em
+  jobs: uma solicitação de publicação não confirma entrega ao peer. O estado de
+  compartilhamento distingue envio solicitado, confirmado e desconhecido/falho.
 
 ## Síntese de implantação
 
 O baseline recomendado é um container PostgreSQL, um worker de coleta/normalização e
-um worker de scoring/compartilhamento, todos ligados pela mesma base persistente.
+um worker de scoring/compartilhamento, todos ligados pela mesma base persistente; o
+código é um monolito modular (ver `plan.md`).
 Parâmetros operacionais (cadências, endpoint, peers, limites de score e parâmetros
 CARIOCA) são configuração versionada/identificável, não valores ocultos no código.

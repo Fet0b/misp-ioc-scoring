@@ -7,11 +7,23 @@ de replicação nem substituir os controles de distribuição do MISP.
 
 ## Elegibilidade
 
-1. Deve existir Resultado de score válido para a revisão de entrada atual.
+0. Peers, mínimos e credenciais vêm das variáveis de ambiente do container, lidas na
+   inicialização; configuração ausente ou inválida impede o compartilhamento e mudanças
+   exigem reiniciar o container. A política efetiva carregada é registrada e referenciada
+   pelas tentativas.
+1. Deve existir Resultado de score válido para a revisão de entrada atual, vindo da
+   execução vigente: a última concluída com sucesso, com no máximo 48 horas. Acima disso
+   o compartilhamento é suspenso, o operador é avisado e os envios só retomam após nova
+   execução bem-sucedida.
 2. O score deve atingir o mínimo configurado para o peer.
-3. O evento/atributo deve obedecer publicação, distribuição, sharing group e permissões
+3. O IOC deve estar entre os N maiores scores válidos da execução vigente (`top_n` da
+   Configuração CARIOCA).
+4. O IOC não pode constar em warninglist habilitada (igualdade exata, CIDR ou
+   hostname/subdomínio); o motivo é registrado e o score
+   mantido (FR-027).
+5. O evento/atributo deve obedecer publicação, distribuição, sharing group e permissões
    de conta definidos no MISP.
-4. IOC inelegível ou sem score/configuração CARIOCA válida não é enviado.
+6. IOC inelegível ou sem score/configuração CARIOCA válida não é enviado.
 
 ## Operação
 
@@ -25,8 +37,9 @@ de replicação nem substituir os controles de distribuição do MISP.
   operação de criação ou publicação.
 - Falhas transitórias permanecem pendentes para retentativa controlada; falhas
   permanentes ficam visíveis para intervenção.
-- Reavaliar score e elegibilidade antes de uma nova tentativa; não compartilhar IOC
-  que deixou de atingir o limite.
+- Reavaliar score, posição no top-N, warninglist e elegibilidade antes de uma nova
+  tentativa; não compartilhar IOC que deixou de atender a qualquer critério. Um score
+  de uma execução anterior ao `as_of` vigente não é válido para novo envio.
 
 ## Garantias
 
