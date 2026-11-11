@@ -1,0 +1,50 @@
+services:
+  database:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  collector:
+    build: .
+    command: ["python", "-m", "misp_ioc_scoring.entrypoints.collector"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${COLLECTOR_DATABASE_URL:?Set COLLECTOR_DATABASE_URL}
+    depends_on:
+      database:
+        condition: service_healthy
+
+  scoring-sharing:
+    build: .
+    command: ["python", "-m", "misp_ioc_scoring.entrypoints.scoring_sharing"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${SCORING_DATABASE_URL:?Set SCORING_DATABASE_URL}
+      MISP_PEERS_SECRET_REF: ${MISP_PEERS_SECRET_REF:?Set MISP_PEERS_SECRET_REF}
+      PEER_MINIMUM_SCORES_SECRET_REF: ${PEER_MINIMUM_SCORES_SECRET_REF:?Set PEER_MINIMUM_SCORES_SECRET_REF}
+      PEER_CREDENTIALS_SECRET_REF: ${PEER_CREDENTIALS_SECRET_REF:?Set PEER_CREDENTIALS_SECRET_REF}
+    depends_on:
+      database:
+        condition: service_healthy
+
+  tools:
+    build: .
+    profiles: [tools]
+    command: ["python", "tools/export_observability.py"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${OBSERVER_DATABASE_URL:?Set OBSERVER_DATABASE_URL}
+    volumes:
+      - ./output:/output
+
+volumes:
+  postgres-data:
