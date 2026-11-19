@@ -1,18 +1,58 @@
-"""Reserved composition root; CARIOCA activation remains subject to approval."""
+"""Composition root for scoring and defensive DNS sharing."""
+import logging
+from datetime import datetime, timezone
+from functools import partial
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+
+from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import run
+from misp_ioc_scoring.scoring.infrastructure.scheduling.scheduler import add_scoring_job
+from misp_ioc_scoring.sharing.adapters.pihole import PiHole
+from misp_ioc_scoring.sharing.infrastructure.persistence.pihole import Store
+from misp_ioc_scoring.sharing.infrastructure.scheduling.scheduler import sync
+from misp_ioc_scoring.shared.configuration import enabled, load_configuration, resolve_secret
+from misp_ioc_scoring.shared.database import engine_from_configuration
 from misp_ioc_scoring.shared.errors import OperationalError
 from misp_ioc_scoring.shared.logging import configure_logging
-import logging
+
+log = logging.getLogger(__name__)
+
+
+def safe_job(name, job):
+    try:
+        job()
+    except Exception:
+        log.error("%s_job_failed", name)
 
 
 def main():
-    raise OperationalError('scoring_sharing_implementation_pending')
+    flags = [enabled(key) for key in ("SCORING_SIMPLE_ENABLED", "SCORING_CARIOCA_ENABLED",
+                                    "SHARING_PIHOLE_ENABLED", "SHARING_MISP_ENABLED")]
+    if not any(flags):
+        return
+    config = load_configuration("scoring-sharing")
+    engine = engine_from_configuration(config)
+    try:
+        scheduler = BlockingScheduler(timezone="UTC")
+        if config.simple_scoring_enabled:
+            score = partial(safe_job, "scoring", partial(run, engine, config.score_max_age_hours))
+            add_scoring_job(scheduler, score, config.scoring_daily_cron)
+        if config.pihole_enabled:
+            client = PiHole(config.pihole_url, resolve_secret(config.pihole_password_secret_ref).get_secret_value())
+            store = Store(engine, config.pihole_url)
+            share = partial(safe_job, "pihole", partial(sync, engine, client, store, config.score_max_age_hours))
+            scheduler.add_job(share, "interval", seconds=config.pihole_interval_seconds,
+                              id="pihole", max_instances=1, coalesce=True,
+                              next_run_time=datetime.now(timezone.utc))
+        scheduler.start()
+    finally:
+        engine.dispose()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     configure_logging()
     try:
         main()
     except OperationalError as error:
-        logging.getLogger(__name__).error('scoring_sharing_unavailable', extra={
-            'event': 'scoring_sharing_unavailable', 'code': error.code})
+        log.error("scoring_sharing_startup_failed", extra={"code": error.code})
         raise SystemExit(1) from None

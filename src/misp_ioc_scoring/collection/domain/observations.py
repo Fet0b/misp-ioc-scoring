@@ -24,3 +24,4 @@ class Observation:
     sharing_group_id: str | None = None
     tags: tuple[str, ...] = ()
     removed_at: datetime | None = None
+    attribute_id: int | None = None

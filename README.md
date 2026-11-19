@@ -4,7 +4,7 @@ Python 3.12 modular workers with PostgreSQL. The collection MVP is implemented:
 MISP pagination, IOC normalization, provenance, indicator rejections, warninglists,
 transactional checkpoints and a read-only Excel export.
 
-**Scoring and outbound sharing are not implemented yet.** Their Compose profile
+**CARIOCA scoring and outbound sharing to MISP peers are not implemented yet.** Their Compose profile
 `scoring` is disabled by default. CARIOCA parameters still require evaluation and
 explicit approval; collection does not publish or modify MISP data.
 
@@ -82,3 +82,22 @@ docker compose --profile tools run --rm tools
 Output is restricted to UID `10001` (directory `0700`, files `0600`). Columns commented
 `secret` are excluded. All cells are written as text. Sheet truncation is explicit,
 and table totals remain visible in the metrics sheet.
+
+## Bloqueio simples e Pi-hole
+
+No perfil Compose `scoring`, habilite `SCORING_SIMPLE_ENABLED=true` e configure
+`SCORING_DAILY_CRON` em UTC. O worker grava uma decisão por origem e UUID do
+atributo. A elegibilidade exige `to_ids=1`, tipo `url` ou `domain`, evento com
+`analysis=2`, ausência em warninglist e menos de 365 dias desde o timestamp
+de modificação do atributo. Para coletar também atributos com `to_ids=false`,
+desative o filtro `MISP_TO_IDS_ONLY` e confira a configuração de cada endpoint.
+
+Consulte `scoring.decisao_bloqueio_efetiva` com um papel somente leitura.
+A decisão é revalidada na consulta. Ambas as flags de compartilhamento começam
+desativadas. Ative o Pi-hole v6 com `SHARING_PIHOLE_ENABLED=true`,
+`PIHOLE_SCORE_MODEL=default`, `PIHOLE_URL`, `PIHOLE_INTERVAL_SECONDS` e
+uma referência de senha. Uma URL vira uma regra DNS exata para seu hostname.
+Isso afeta todos os caminhos daquele hostname. O ID remoto e o comentário
+identificam entradas do projeto. Quando a propriedade é incerta, a entrada
+permanece. A ativação de CARIOCA ou do transporte para peers MISP gera erro
+explícito enquanto esses componentes estiverem pendentes.

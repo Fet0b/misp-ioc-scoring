@@ -11,6 +11,7 @@ class Payload(BaseModel):
 
 class AttributePayload(Payload):
     uuid: UUID
+    id: int | None = Field(default=None, gt=0, le=9223372036854775807)
     type: str
     value: str = Field(repr=False)
     category: str
@@ -76,4 +77,5 @@ class EventPayload(Payload):
                 published=self.published, sharing_group_id=attribute.sharing_group_id,
                 tags=tuple(tag['name'] for tag in attribute.Tag if 'name' in tag),
                 removed_at=collected_at if attribute.deleted else None,
+                attribute_id=attribute.id,
             )

@@ -1,7 +1,7 @@
 """Atomic observation upsert and full-snapshot reconciliation per endpoint."""
 from dataclasses import asdict
 from uuid import uuid4
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from misp_ioc_scoring.collection.application.reconcile import guard_removals
 from misp_ioc_scoring.collection.application.status import report_status
 from misp_ioc_scoring.collection.domain.normalization import normalize, IndicatorRejected
@@ -24,6 +24,7 @@ class ObservationsRepository:
 
     def apply(self, observations, active_uuids, warninglists, collected_at):
         with transaction(self.engine) as session:
+            session.execute(text("SELECT pg_advisory_xact_lock(874201)"))
             endpoint = session.scalar(select(EndpointModel).where(
                 EndpointModel.id == self.source_instance_id).with_for_update(nowait=True))
             if endpoint.last_successful_checkpoint and endpoint.last_successful_checkpoint > collected_at:
@@ -49,7 +50,7 @@ class ObservationsRepository:
                         RejectionModel.reason == error.reason))
                     values = dict(source_instance_id=self.source_instance_id,
                                   event_uuid=observation.event_uuid, attribute_uuid=observation.attribute_uuid,
-                                  misp_type=observation.misp_type, raw_value=observation.raw_value,
+                                  misp_type=observation.misp_type, attribute_id=observation.attribute_id, raw_value=observation.raw_value,
                                   reason=error.reason, detail='indicator_rejected', rejected_at=collected_at)
                     if rejection:
                         for key, val in values.items():
@@ -94,6 +95,7 @@ class ObservationsRepository:
             endpoint.last_successful_checkpoint = collected_at
             endpoint.last_run_at = collected_at
             endpoint.last_success_at = collected_at
+            endpoint.generation += 1
             endpoint.status = 'completed'
             endpoint.error = None
             endpoint.warnings = []
@@ -101,7 +103,9 @@ class ObservationsRepository:
 
     def failed(self, collected_at, code):
         with transaction(self.engine) as session:
+            session.execute(text("SELECT pg_advisory_xact_lock(874201)"))
             endpoint = session.get(EndpointModel, self.source_instance_id)
+            endpoint.generation += 1
             endpoint.last_run_at = collected_at
             endpoint.status = 'failed'
             endpoint.error = code

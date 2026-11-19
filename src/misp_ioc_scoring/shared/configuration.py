@@ -3,6 +3,7 @@ import math
 import os
 from pathlib import Path
 from typing import Literal, Mapping
+from urllib.parse import urlsplit
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
@@ -37,6 +38,12 @@ class Configuration(BaseModel):
     peer_minimum_scores_secret_ref: str | None = Field(default=None, repr=False)
     peer_credentials_secret_ref: str | None = Field(default=None, repr=False)
 
+    pihole_enabled: bool = False
+    simple_scoring_enabled: bool = False
+    pihole_url: str | None = None
+    pihole_password_secret_ref: str | None = Field(default=None, repr=False)
+    pihole_interval_seconds: float | None = None
+
 
 def resolve_secret(reference: str, environ: Mapping[str, str] | None = None) -> SecretStr:
     environ = os.environ if environ is None else environ
@@ -54,6 +61,14 @@ def resolve_secret(reference: str, environ: Mapping[str, str] | None = None) -> 
         raise ConfigurationError('SECRET_REF') from None
     register_secret(value)
     return SecretStr(value)
+
+
+def enabled(key, default=False, environ=None):
+    env = os.environ if environ is None else environ
+    raw = env.get(key, "true" if default else "false")
+    if raw not in {"true", "false"}:
+        raise ConfigurationError(key)
+    return raw == "true"
 
 
 def load_configuration(service: str, environ: Mapping[str, str] | None = None) -> Configuration:
@@ -109,25 +124,47 @@ def load_configuration(service: str, environ: Mapping[str, str] | None = None) -
         number('COLLECTION_RETRY_ATTEMPTS', integer=True)
         number('COLLECTION_RETRY_BACKOFF_SECONDS')
         number('RECONCILE_MAX_REMOVAL_RATIO', maximum=1, inclusive=True)
-    if service in {'collector', 'scoring-sharing'}:
         number('MISP_REQUEST_TIMEOUT_SECONDS')
     if service == 'scoring-sharing':
-        cron = required('SCORING_DAILY_CRON')
-        try:
-            CronTrigger.from_crontab(cron, timezone='UTC')
-        except ValueError:
-            raise ConfigurationError('SCORING_DAILY_CRON') from None
-        values['scoring_daily_cron'] = cron
-        for key in ('SHARING_INTERVAL_SECONDS', 'SHARING_RETRY_BACKOFF_SECONDS'):
-            number(key)
-        number('SHARING_RETRY_ATTEMPTS', integer=True)
-        number('CARIOCA_TOP_N', integer=True)
-        values['carioca_config_path'] = required('CARIOCA_CONFIG_PATH')
-        for key in ('MISP_PEERS_SECRET_REF', 'PEER_MINIMUM_SCORES_SECRET_REF', 'PEER_CREDENTIALS_SECRET_REF'):
-            reference = required(key)
+        for key in ('SHARING_MISP_ENABLED', 'SCORING_CARIOCA_ENABLED'):
+            if enabled(key, environ=env):
+                raise ConfigurationError(key + '_NOT_IMPLEMENTED')
+        simple = enabled('SCORING_SIMPLE_ENABLED', environ=env)
+        pihole = enabled('SHARING_PIHOLE_ENABLED', environ=env)
+        values.update(simple_scoring_enabled=simple, pihole_enabled=pihole)
+        if simple:
+            cron = required('SCORING_DAILY_CRON')
+            try:
+                CronTrigger.from_crontab(cron, timezone='UTC')
+            except ValueError:
+                raise ConfigurationError('SCORING_DAILY_CRON') from None
+            values['scoring_daily_cron'] = cron
+        if pihole:
+            model = env.get('PIHOLE_SCORE_MODEL', 'default')
+            if model == 'carioca':
+                number('PIHOLE_CARIOCA_MIN_SCORE', maximum=100, inclusive=True)
+                raise ConfigurationError('PIHOLE_CARIOCA_NOT_IMPLEMENTED')
+            if model != 'default':
+                raise ConfigurationError('PIHOLE_SCORE_MODEL')
+            if not simple:
+                raise ConfigurationError('PIHOLE_REQUIRES_SCORING_SIMPLE_ENABLED')
+            endpoint = required('PIHOLE_URL')
+            allow_http = enabled('PIHOLE_ALLOW_HTTP', environ=env)
+            try:
+                parsed = urlsplit(endpoint)
+                if (parsed.scheme not in ({'https', 'http'} if allow_http else {'https'})
+                        or not parsed.hostname or parsed.username is not None
+                        or parsed.path not in ('', '/') or parsed.query or parsed.fragment
+                        or parsed.port == 0):
+                    raise ValueError
+            except ValueError:
+                raise ConfigurationError('PIHOLE_URL') from None
+            values['pihole_url'] = endpoint.rstrip('/')
+            reference = required('PIHOLE_PASSWORD_SECRET_REF')
             if not reference.startswith(('file:/', 'env:')):
-                raise ConfigurationError(key)
-            values[key.lower()] = reference
+                raise ConfigurationError('PIHOLE_PASSWORD_SECRET_REF')
+            values['pihole_password_secret_ref'] = reference
+            number('PIHOLE_INTERVAL_SECONDS')
     if service == 'tools':
         values['export_output_dir'] = required('EXPORT_OUTPUT_DIR')
     try:

@@ -17,3 +17,6 @@
 | Rejeição de indicador | Registro de entrada inválida ou não suportada que não originou IOC. | erro de IOC |
 | `as_of` | Instante único de referência temporal de uma execução de scoring. | data atual |
 | Warninglist | Lista MISP de valores que afetam a elegibilidade de compartilhamento. | blacklist |
+| Decisão de bloqueio | Avaliação booleana de uma Observação de origem, identificada pelo UUID de atributo e pela origem. O ID numérico é local à origem. | score numérico |
+| Destino Pi-hole | Instância DNS que recebe hostnames exatos. Uma URL contribui com seu hostname inteiro. | filtro de caminho |
+| Entrada gerenciada | Regra DNS cuja propriedade o projeto confirma pelo ID remoto e pela marca no comentário. | entrada manual |

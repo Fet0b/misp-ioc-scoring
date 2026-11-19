@@ -1,7 +1,7 @@
 """Collection-owned persistence; secret references are explicitly annotated."""
 from datetime import datetime
 from uuid import UUID, uuid4
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 from misp_ioc_scoring.shared.database import Base
 
@@ -30,6 +30,7 @@ class EndpointModel(Base):
     last_successful_checkpoint: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    generation: Mapped[int] = mapped_column(BigInteger, default=0)
     status: Mapped[str] = mapped_column(String(30), default='scheduled')
     error: Mapped[str | None] = mapped_column(String(100))
     warnings: Mapped[list] = mapped_column(JSON, default=list)
@@ -43,6 +44,7 @@ class ObservationModel(Base):
     source_instance_id: Mapped[str] = mapped_column(ForeignKey('collection.endpoint_coleta.id'))
     event_uuid: Mapped[UUID] = mapped_column(Uuid)
     attribute_uuid: Mapped[UUID] = mapped_column(Uuid)
+    attribute_id: Mapped[int | None] = mapped_column(BigInteger)
     raw_value: Mapped[str] = mapped_column(Text)
     misp_type: Mapped[str] = mapped_column(String(100))
     category: Mapped[str] = mapped_column(String(100))
@@ -72,6 +74,7 @@ class RejectionModel(Base):
     source_instance_id: Mapped[str] = mapped_column(ForeignKey('collection.endpoint_coleta.id'))
     event_uuid: Mapped[UUID] = mapped_column(Uuid)
     attribute_uuid: Mapped[UUID] = mapped_column(Uuid)
+    attribute_id: Mapped[int | None] = mapped_column(BigInteger)
     misp_type: Mapped[str] = mapped_column(String(100))
     raw_value: Mapped[str] = mapped_column(Text)
     reason: Mapped[str] = mapped_column(String(30))

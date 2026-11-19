@@ -90,12 +90,24 @@ def scoring_env():
     }
 
 
-def test_scoring_requires_explicit_top_n_and_valid_schedule():
-    assert load_configuration('scoring-sharing', scoring_env()).carioca_top_n == 100
-    for key, value in [('CARIOCA_TOP_N', ''), ('SCORING_DAILY_CRON', 'invalid'),
-                       ('SHARING_RETRY_ATTEMPTS', '0'), ('PEER_CREDENTIALS_SECRET_REF', 'raw-secret')]:
-        with pytest.raises(ConfigurationError, match=key):
-            load_configuration('scoring-sharing', scoring_env() | {key: value})
+def test_scoring_flags_and_conditional_settings():
+    env = {"DATABASE_URL": scoring_env()["DATABASE_URL"]}
+    assert not load_configuration("scoring-sharing", env).simple_scoring_enabled
+    with pytest.raises(ConfigurationError, match="SHARING_MISP_ENABLED_NOT_IMPLEMENTED"):
+        load_configuration("scoring-sharing", env | {"SHARING_MISP_ENABLED": "true"})
+    with pytest.raises(ConfigurationError, match="SCORING_DAILY_CRON"):
+        load_configuration("scoring-sharing", env | {"SCORING_SIMPLE_ENABLED": "true"})
+    pihole = env | {"SHARING_PIHOLE_ENABLED": "true", "PIHOLE_SCORE_MODEL": "carioca"}
+    for value in ("", "nan", "101"):
+        with pytest.raises(ConfigurationError, match="PIHOLE_CARIOCA_MIN_SCORE"):
+            load_configuration("scoring-sharing", pihole | {"PIHOLE_CARIOCA_MIN_SCORE": value})
+    for value in ("0", "100"):
+        with pytest.raises(ConfigurationError, match="PIHOLE_CARIOCA_NOT_IMPLEMENTED"):
+            load_configuration("scoring-sharing", pihole | {"PIHOLE_CARIOCA_MIN_SCORE": value})
+    active = env | {"SCORING_SIMPLE_ENABLED": "true", "SCORING_DAILY_CRON": "0 3 * * *",
+                    "SHARING_PIHOLE_ENABLED": "true", "PIHOLE_URL": "https://dns.example",
+                    "PIHOLE_INTERVAL_SECONDS": "60", "PIHOLE_PASSWORD_SECRET_REF": "env:PIHOLE_PASSWORD"}
+    assert load_configuration("scoring-sharing", active).pihole_enabled
 
 
 def test_export_physical_row_limit_is_accepted():

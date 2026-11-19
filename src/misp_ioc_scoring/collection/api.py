@@ -93,3 +93,63 @@ class CollectionReader:
 
     def rejection_counts(self):
         return dict(Counter((r.source_instance_id, r.reason) for r in self.rejections()))
+
+
+def blocking_snapshot(session):
+    """Read under the caller's collection advisory lock."""
+    from .infrastructure.persistence.models import EndpointModel
+
+    endpoints = {item.id: item for item in session.scalars(select(EndpointModel))}
+    observations = session.execute(select(ObservationModel, IOCModel.normalized_value)
+                                   .join(IOCModel, IOCModel.id == ObservationModel.ioc_id)).all()
+    warnings = tuple(session.scalars(select(WarninglistModel)))
+    rejected = tuple(session.scalars(select(RejectionModel)))
+    return endpoints, observations, warnings, rejected
+
+
+def blocking_warninglist_membership(entries, kind, value):
+    from ipaddress import ip_address
+    from urllib.parse import urlsplit
+
+    host = urlsplit(value).hostname if kind == "url" else value
+    host_kind = "domain"
+    try:
+        ip_address(host)
+        host_kind = "ip-dst"
+    except ValueError:
+        pass
+    uncertain = False
+    for item in entries:
+        entry = WarninglistEntry(item.source_instance_id, item.list_name,
+                                 item.list_type, item.normalized_value)
+        if not item.supported or not entry.supported:
+            uncertain = True
+        elif entry.matches(kind, value) or (kind == "url" and entry.matches(host_kind, host)):
+            return True
+    return None if uncertain else False
+
+
+def active_blocking_values(session):
+    return session.execute(select(
+        ObservationModel.source_instance_id, ObservationModel.attribute_uuid,
+        ObservationModel.misp_type, ObservationModel.category, IOCModel.normalized_value,
+    ).join(IOCModel, IOCModel.id == ObservationModel.ioc_id).where(
+        ObservationModel.removed_at.is_(None),
+        ObservationModel.misp_type.in_(("domain", "url")),
+    )).all()
+
+
+def unavailable_blocking_sources(session, now, max_age):
+    from .infrastructure.persistence.models import EndpointModel
+
+    return set(session.scalars(select(EndpointModel.id).where(
+        (EndpointModel.generation == 0) | (EndpointModel.status != "completed")
+        | EndpointModel.last_success_at.is_(None)
+        | (EndpointModel.last_success_at <= now - max_age)
+    )))
+
+
+def blocking_generations(session):
+    from .infrastructure.persistence.models import EndpointModel
+
+    return dict(session.execute(select(EndpointModel.id, EndpointModel.generation)).tuples().all())

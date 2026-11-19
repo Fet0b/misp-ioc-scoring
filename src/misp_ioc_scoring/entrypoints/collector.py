@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from functools import partial
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from misp_ioc_scoring.shared.configuration import load_configuration, resolve_secret
+from misp_ioc_scoring.shared.configuration import enabled, load_configuration, resolve_secret
 from misp_ioc_scoring.shared.database import engine_from_configuration, transaction
 from misp_ioc_scoring.shared.errors import ConfigurationError, OperationalError
 from misp_ioc_scoring.shared.logging import configure_logging
@@ -38,6 +38,8 @@ def _run(source, repository, configuration):
 
 def main():
     configure_logging()
+    if not enabled('COLLECTION_ENABLED', default=True):
+        return
     configuration = load_configuration('collector')
     try:
         endpoints = [Endpoint.model_validate(e) for e in json.loads(
