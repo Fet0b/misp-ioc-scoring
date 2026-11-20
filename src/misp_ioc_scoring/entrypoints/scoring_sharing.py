@@ -38,8 +38,10 @@ def main():
             score = partial(safe_job, "scoring", partial(run, engine, config.score_max_age_hours))
             add_scoring_job(scheduler, score, config.scoring_daily_cron)
         if config.pihole_enabled:
-            client = PiHole(config.pihole_url, resolve_secret(config.pihole_password_secret_ref).get_secret_value())
-            store = Store(engine, config.pihole_url)
+            client = PiHole(config.pihole_url, resolve_secret(config.pihole_password_secret_ref).get_secret_value(),
+                            allow_http=enabled("PIHOLE_ALLOW_HTTP"))
+            store = Store(engine, config.pihole_url, config.pihole_interval_seconds,
+                          config.pihole_password_secret_ref)
             share = partial(safe_job, "pihole", partial(sync, engine, client, store, config.score_max_age_hours))
             scheduler.add_job(share, "interval", seconds=config.pihole_interval_seconds,
                               id="pihole", max_instances=1, coalesce=True,

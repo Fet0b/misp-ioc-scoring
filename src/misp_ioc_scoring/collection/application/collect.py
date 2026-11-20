@@ -26,8 +26,7 @@ def collect(source: Source, repository: CollectionRepository, collected_at, *,
             # A complete identity snapshot is mandatory: absence in an incremental window
             # cannot be interpreted as a removal. Full records also recover shifted pages.
             snapshot = list(source.observations(collected_at)) if since else observations
-            by_uuid = {o.attribute_uuid: o for o in observations}
-            by_uuid.update({o.attribute_uuid: o for o in snapshot})
+            by_uuid = {o.attribute_uuid: o for o in snapshot}
             warninglists = list(source.warninglists())
             repository.apply(list(by_uuid.values()), {o.attribute_uuid for o in snapshot},
                              warninglists, collected_at)

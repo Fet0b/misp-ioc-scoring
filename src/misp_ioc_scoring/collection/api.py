@@ -152,4 +152,5 @@ def unavailable_blocking_sources(session, now, max_age):
 def blocking_generations(session):
     from .infrastructure.persistence.models import EndpointModel
 
-    return dict(session.execute(select(EndpointModel.id, EndpointModel.generation)).tuples().all())
+    rows = session.execute(select(EndpointModel.id, EndpointModel.generation))
+    return {source: generation for source, generation in rows}

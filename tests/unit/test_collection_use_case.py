@@ -41,3 +41,18 @@ def test_removal_guard_boundary():
     guard_removals(10, 2, .2)
     with pytest.raises(OperationalError, match='collection_removal_limit_exceeded'):
         guard_removals(10, 3, .2)
+
+
+def test_incremental_attribute_absent_from_full_snapshot_is_not_published():
+    class Source:
+        def observations(self, collected_at, since=None):
+            if since is not None:
+                yield SimpleNamespace(attribute_uuid="removed-between-queries")
+
+        def warninglists(self):
+            return []
+
+    repository = Repository()
+    collect(Source(), repository, datetime.now(timezone.utc), overlap_minutes=5,
+            attempts=1, backoff_seconds=2)
+    assert repository.applied[0][:3] == ([], set(), [])

@@ -12,3 +12,7 @@ A marca de propriedade é gravada em `comment` como `misp-ioc-scoring:<UUID>`
 e persistida localmente antes do POST. Depois de confirmação por leitura,
 o ID remoto também é persistido. Uma tentativa ambígua só pode ser vinculada
 se o comentário remoto casar com a marca pendente e a API fornecer um ID.
+
+As entradas novas usam o grupo padrão (ID 0). Se um operador trocar o grupo,
+desativar a entrada ou alterar sua marca ou ID, a próxima reconciliação
+preserva a entrada e registra que a propriedade precisa ser verificada.

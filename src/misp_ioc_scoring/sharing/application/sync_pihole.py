@@ -5,6 +5,13 @@ from uuid import uuid4
 log = logging.getLogger(__name__)
 
 
+def owned(remote, marker, remote_id):
+    return (remote is not None and remote.get("comment") == marker
+            and type(remote.get("id")) is int
+            and (remote_id is None or remote["id"] == remote_id)
+            and remote.get("groups") == [0] and remote.get("enabled") is True)
+
+
 def reconcile(client, store, desired, unavailable, revalidate=lambda operation, host, evidence: True):
     entries = store.entries()
     for host in sorted(set(entries) | set(desired)):
@@ -23,14 +30,11 @@ def reconcile(client, store, desired, unavailable, revalidate=lambda operation, 
             remote = client.lookup(host)
             marker = entry["marker"] if entry else "misp-ioc-scoring:" + uuid4().hex
             remote_id = entry["remote_id"] if entry else None
-            if remote is not None:
-                marked = entry and remote.get("comment") == marker
-                identity_matches = remote_id is None or remote.get("id") == remote_id
-                if not marked or not identity_matches or remote.get("id") is None:
-                    if entry:
-                        store.save(host, marker, remote_id, "unverified", evidence or old)
-                    log.warning("pihole_entry_ownership_unverified")
-                    continue
+            if remote is not None and (not entry or not owned(remote, marker, remote_id)):
+                if entry:
+                    store.save(host, marker, remote_id, "unverified", evidence or old)
+                log.warning("pihole_entry_ownership_unverified")
+                continue
             if new and remote is None:
                 if entry and entry["status"] == "unverified":
                     continue
@@ -42,7 +46,7 @@ def reconcile(client, store, desired, unavailable, revalidate=lambda operation, 
                     continue
                 client.add(host, marker)
                 remote = client.lookup(host)
-                if not remote or remote.get("comment") != marker or remote.get("id") is None:
+                if not owned(remote, marker, None):
                     raise ValueError("unconfirmed_add")
             if new:
                 store.save(host, marker, remote["id"], "confirmed", evidence)
@@ -50,6 +54,10 @@ def reconcile(client, store, desired, unavailable, revalidate=lambda operation, 
                 if remote:
                     store.attempt(host, operation, "pending")
                     if not revalidate(operation, host, old):
+                        continue
+                    if not owned(client.lookup(host), marker, remote["id"]):
+                        store.save(host, marker, remote_id, "unverified", old)
+                        log.warning("pihole_entry_ownership_unverified")
                         continue
                     client.remove(host)
                     if client.lookup(host) is not None:

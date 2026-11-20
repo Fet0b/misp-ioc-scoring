@@ -32,7 +32,7 @@ class FakePiHole:
         return self.rows.get(host)
 
     def add(self, host, marker):
-        self.rows[host] = {"id": 2, "comment": marker}
+        self.rows[host] = {"id": 2, "comment": marker, "groups": [0], "enabled": True}
         if self.timeout:
             self.timeout = False
             raise TimeoutError

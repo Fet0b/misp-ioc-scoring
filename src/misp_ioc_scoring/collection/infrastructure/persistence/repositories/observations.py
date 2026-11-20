@@ -27,7 +27,7 @@ class ObservationsRepository:
             session.execute(text("SELECT pg_advisory_xact_lock(874201)"))
             endpoint = session.scalar(select(EndpointModel).where(
                 EndpointModel.id == self.source_instance_id).with_for_update(nowait=True))
-            if endpoint.last_successful_checkpoint and endpoint.last_successful_checkpoint > collected_at:
+            if endpoint.last_run_at and endpoint.last_run_at > collected_at:
                 raise OperationalError('collection_checkpoint_superseded')
             active = list(session.scalars(select(ObservationModel).where(
                 ObservationModel.source_instance_id == self.source_instance_id,
@@ -105,6 +105,8 @@ class ObservationsRepository:
         with transaction(self.engine) as session:
             session.execute(text("SELECT pg_advisory_xact_lock(874201)"))
             endpoint = session.get(EndpointModel, self.source_instance_id)
+            if endpoint.last_run_at and endpoint.last_run_at > collected_at:
+                return
             endpoint.generation += 1
             endpoint.last_run_at = collected_at
             endpoint.status = 'failed'

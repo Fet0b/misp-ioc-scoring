@@ -41,7 +41,7 @@ class CollectionSource:
                     for observation in event.observations(self.source_instance_id, collected_at):
                         if observation.removed_at is None and (not self.to_ids_only or observation.to_ids):
                             yield observation
-            except (ValidationError, ValueError, KeyError, TypeError, AttributeError):
+            except (ValidationError, ValueError, KeyError, TypeError, AttributeError, OverflowError, OSError):
                 raise OperationalError('misp_payload_invalid') from None
             if len(rows) < self.page_size:
                 break
@@ -58,8 +58,10 @@ class CollectionSource:
             if enabled not in (True, 1, '1', 'true'):
                 continue
             detail = self.client.call('get_warninglist', warninglist=item['id'])
-            detail = detail.get('Warninglist', detail)
-            for value in detail.get('WarninglistEntry', []):
+            detail = detail.get('Warninglist', detail) if isinstance(detail, dict) else None
+            if not isinstance(detail, dict) or not isinstance(detail.get('WarninglistEntry'), list):
+                raise OperationalError('misp_warninglists_invalid')
+            for value in detail['WarninglistEntry']:
                 raw = value['value'] if isinstance(value, dict) else value
                 kind = detail['type']
                 if kind == 'hostname':

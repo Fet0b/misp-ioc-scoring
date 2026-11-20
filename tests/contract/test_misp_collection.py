@@ -64,3 +64,42 @@ def test_enabled_warninglists_and_unsupported_entries():
     entries = list(CollectionSource(WarningClient(), 'test', True).warninglists())
     assert len(entries) == 1
     assert entries[0].supported is False
+
+
+def test_object_attributes_preserve_identity_category_and_attribute_timestamp():
+    payload = event()
+    attribute = payload["Attribute"][0]
+    payload["Object"] = [{"Attribute": [dict(attribute, uuid=str(uuid4()), id="42",
+                                             timestamp="1793491201", category="Other", to_ids=False)]}]
+    client = Client([[{"Event": payload}], []])
+    observations = list(CollectionSource(client, "test", False, page_size=1).observations(
+        datetime.now(timezone.utc)))
+    original, nested = observations
+    assert original.attribute_id is None
+    assert nested.attribute_id == 42
+    assert str(nested.attribute_uuid) == payload["Object"][0]["Attribute"][0]["uuid"]
+    assert nested.category == "Other"
+    assert nested.source_modified_at.timestamp() == 1793491201
+    assert not nested.to_ids
+    assert "to_ids" not in client.calls[0][1]
+    assert list(CollectionSource(client, "test", False).warninglists()) == []
+
+
+def test_invalid_attribute_does_not_echo_raw_value():
+    payload = event()
+    payload["Attribute"][0].update(uuid="invalid", value="private-indicator")
+    with pytest.raises(OperationalError) as caught:
+        list(CollectionSource(Client([[payload]]), "test", True).observations(datetime.now(timezone.utc)))
+    assert "private-indicator" not in str(caught.value)
+    assert caught.value.__suppress_context__
+
+
+def test_incomplete_enabled_warninglist_is_not_an_empty_list():
+    class IncompleteWarningClient:
+        def call(self, operation, **kwargs):
+            if operation == "warninglists":
+                return [{"Warninglist": {"enabled": True, "id": 1}}]
+            return {"errors": ["private-list"]}
+
+    with pytest.raises(OperationalError, match="^misp_warninglists_invalid$"):
+        list(CollectionSource(IncompleteWarningClient(), "test", False).warninglists())

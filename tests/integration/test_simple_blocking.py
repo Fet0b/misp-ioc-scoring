@@ -30,3 +30,38 @@ def test_collected_attribute_and_stale_decision(engine):
         assert not blocking_decision(session, "test", attribute_uuid=attribute)["block"]
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))
+
+
+def test_effective_decision_expires_and_observer_cannot_write(engine):
+    from datetime import timedelta
+    import pytest
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import DBAPIError
+
+    now = datetime.now(timezone.utc)
+    attribute = uuid4()
+    timestamp = now - timedelta(days=364)
+    observation = Observation(
+        source_instance_id="test", event_uuid=uuid4(), attribute_uuid=attribute,
+        raw_value="expired.example", misp_type="domain", category="Network activity", to_ids=True,
+        orgc_uuid=None, source_created_at=timestamp, source_modified_at=timestamp, collected_at=now,
+        event_threat_level="2", event_analysis="2", distribution="0", event_distribution="0",
+        published=False)
+    ObservationsRepository(engine, "test").apply([observation], {attribute}, [], now)
+    run(engine, 48)
+    with transaction(engine) as session:
+        session.execute(text("UPDATE scoring.decisao_bloqueio SET expires_at = now() WHERE attribute_uuid = :id"),
+                        {"id": attribute})
+    observer = create_engine(engine.url.set(username="observer"))
+    try:
+        with transaction(observer) as session:
+            row = blocking_decision(session, "test", attribute_uuid=attribute)
+            assert row["reason"] == "expired" and row["block"] is False
+            assert row["attribute_id"] is None
+            assert blocking_decision(session, "other", attribute_uuid=attribute) is None
+        with pytest.raises(DBAPIError), transaction(observer) as session:
+            session.execute(text("DELETE FROM scoring.decisao_bloqueio"))
+    finally:
+        observer.dispose()
+        with engine.begin() as connection:
+            connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))

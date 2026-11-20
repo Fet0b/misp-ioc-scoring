@@ -41,3 +41,11 @@
 ## Reconciliação de propriedade
 
 **Decisão:** controlar apenas entradas criadas e comprovadamente gerenciadas pelo projeto, com evidências múltiplas por hostname e publicação confirmada. Uma entrada existente manualmente não é adotada ou removida. Retirar uma entrada gerenciada somente quando não restar nenhuma evidência elegível e o snapshot completo for confiável; falha ou ausência de confiança suspende remoções. **Alternativa:** substituir a lista inteira ou apagar qualquer domínio inelegível, rejeitada por afetar configurações de terceiros.
+
+Para levantar as categorias, configure `DATABASE_URL` com a URL do papel
+`observer` e execute `python -m tools.misp_category_inventory` na raiz.
+O relatório agrega observações ativas por origem, tipo e categoria, incluindo
+atributos de objetos. Os campos `earliest` e `latest` delimitam os instantes
+de coleta das observações em cada grupo. A seção `sources` sinaliza origens
+sem snapshot completo ou cuja última coleta falhou. Contagens existentes
+dessas origens refletem os dados disponíveis da última coleta bem-sucedida.

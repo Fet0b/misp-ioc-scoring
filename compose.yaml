@@ -41,7 +41,7 @@ services:
       MISP_ENDPOINTS_SECRET_REF: file:/run/secrets/collection_endpoints
       COLLECTION_CADENCE_SECRET_REF: file:/run/secrets/collection_cadence
       COLLECTION_ENABLED: ${COLLECTION_ENABLED:-true}
-      MISP_TO_IDS_ONLY: ${MISP_TO_IDS_ONLY:-true}
+      MISP_TO_IDS_ONLY: ${MISP_TO_IDS_ONLY:-false}
       COLLECTION_OVERLAP_MINUTES: ${COLLECTION_OVERLAP_MINUTES:?Set COLLECTION_OVERLAP_MINUTES}
       COLLECTION_RETRY_ATTEMPTS: ${COLLECTION_RETRY_ATTEMPTS:?Set COLLECTION_RETRY_ATTEMPTS}
       COLLECTION_RETRY_BACKOFF_SECONDS: ${COLLECTION_RETRY_BACKOFF_SECONDS:?Set COLLECTION_RETRY_BACKOFF_SECONDS}
@@ -75,7 +75,7 @@ services:
       PIHOLE_ALLOW_HTTP: ${PIHOLE_ALLOW_HTTP:-false}
       SCORE_MAX_AGE_HOURS: ${SCORE_MAX_AGE_HOURS:-48}
     volumes:
-      - ${PIHOLE_CREDENTIALS_DIR:-./secrets}:/run/pihole:ro
+      - ${PIHOLE_CREDENTIALS_DIR:-./secrets/pihole}:/run/pihole:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

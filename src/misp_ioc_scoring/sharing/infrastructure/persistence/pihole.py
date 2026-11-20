@@ -1,14 +1,30 @@
 from uuid import uuid4
 
 from sqlalchemy import JSON, bindparam, text
+from sqlalchemy.dialects.postgresql import insert
+
+from .models import PiHolePolicyModel
 
 from misp_ioc_scoring.shared.database import transaction
 
 
 class Store:
-    def __init__(self, engine, destination):
+    def __init__(self, engine, destination, interval_seconds, password_secret_ref):
         self.engine = engine
         self.destination = destination
+        self.interval_seconds = interval_seconds
+        self.password_secret_ref = password_secret_ref
+
+    def record_policy(self, session):
+        query = insert(PiHolePolicyModel).values(
+            destination=self.destination, model="default", min_score=None,
+            interval_seconds=self.interval_seconds, password_secret_ref=self.password_secret_ref,
+        )
+        session.execute(query.on_conflict_do_update(
+            index_elements=["destination"],
+            set_={key: query.excluded[key] for key in
+                  ("model", "min_score", "interval_seconds", "password_secret_ref")},
+        ))
 
     def entries(self):
         with transaction(self.engine) as session:

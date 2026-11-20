@@ -17,6 +17,7 @@ def sync(engine, client, store, max_age_hours):
     with transaction(engine) as session:
         if not session.scalar(text("SELECT pg_try_advisory_xact_lock(874203)")):
             return
+        store.record_policy(session)
         with transaction(engine) as snapshot:
             snapshot.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
             unavailable = unavailable_blocking_sources(
@@ -36,7 +37,8 @@ def sync(engine, client, store, max_age_hours):
                     desired[host].append({"source": source, "attribute": str(attribute),
                                           "kind": kind, "category": category, "model": "default",
                                           "as_of": row["as_of"].isoformat(),
-                                          "rule_version": row["rule_version"]})
+                                          "rule_version": row["rule_version"],
+                                          "generation": generations[source]})
 
         def revalidate(operation, host, evidence):
             with transaction(engine) as check:
@@ -59,6 +61,7 @@ def sync(engine, client, store, max_age_hours):
                 return True
 
         try:
+            client.validate()
             reconcile(client, store, desired, unavailable, revalidate)
         finally:
             client.close()
