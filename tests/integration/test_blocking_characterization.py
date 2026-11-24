@@ -39,7 +39,9 @@ class RecordingPiHole:
         pass
 
     def lookup(self, host):
-        return self.rows.get(host)
+        from misp_ioc_scoring.sharing.domain.pihole_entries import RemoteEntry
+        row = self.rows.get(host)
+        return RemoteEntry.from_payload(row) if row is not None else None
 
     def add(self, host, marker):
         self.adds.append(host)
@@ -118,11 +120,11 @@ def run_simple_blocking(engine, as_of, monkeypatch):
 
 
 def run_pihole(engine, store, as_of, monkeypatch):
-    from misp_ioc_scoring.sharing.infrastructure.scheduling import scheduler
+    from misp_ioc_scoring.entrypoints import scoring_sharing
 
-    monkeypatch.setattr(scheduler, 'datetime', frozen(as_of))
+    monkeypatch.setattr(scoring_sharing, 'datetime', frozen(as_of))
     remote = RecordingPiHole()
-    scheduler.sync(engine, remote, store, MAX_AGE_HOURS)
+    scoring_sharing.sync_pihole(engine, remote, store, MAX_AGE_HOURS)
     return remote
 
 
@@ -166,7 +168,7 @@ def test_blocking_and_pihole_characterization(engine, worker, monkeypatch, reque
     ], key=lambda row: (row['source_instance_id'], row['attribute']))
     actual = {'decisions': decisions, 'pihole_hosts': sorted(remote.adds),
               'pihole_entries': {host: [{k: v for k, v in item.items() if k in ('kind', 'model', 'generation')}
-                                        for item in entry['evidence']]
+                                        for item in entry.evidence]
                                  for host, entry in sorted(store.entries().items())}}
 
     if request.config.getoption('--update-golden') or not GOLDEN.exists():

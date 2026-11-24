@@ -5,7 +5,8 @@ from sqlalchemy import create_engine, text
 from misp_ioc_scoring.shared.database import transaction
 from misp_ioc_scoring.sharing.application.sync_pihole import reconcile
 from misp_ioc_scoring.sharing.infrastructure.persistence.pihole import Store
-from misp_ioc_scoring.sharing.infrastructure.scheduling.scheduler import sync
+from misp_ioc_scoring.entrypoints.scoring_sharing import sync_pihole as sync
+from misp_ioc_scoring.sharing.domain.pihole_entries import RemoteEntry
 
 
 class Remote:
@@ -24,7 +25,8 @@ class Remote:
         pass
 
     def lookup(self, host):
-        return self.rows.get(host)
+        row = self.rows.get(host)
+        return RemoteEntry.from_payload(row) if row is not None else None
 
     def add(self, host, marker):
         self.adds.append(host)
@@ -55,10 +57,10 @@ def test_timeout_reconciliation_and_scoped_removal(store, caplog):
     a, b = {"source": "a"}, {"source": "b"}
     desired = {"owned.example": [a, b], "manual.example": [a]}
     reconcile(remote, store, desired, set())
-    assert store.entries()["owned.example"]["status"] == "pending"
+    assert store.entries()["owned.example"].status == "pending"
     reconcile(remote, store, desired, set())
     assert remote.adds == ["owned.example"]
-    assert store.entries()["owned.example"]["evidence"] == [a, b]
+    assert store.entries()["owned.example"].evidence == [a, b]
     reconcile(remote, store, {"second.example": [b]}, set())
     assert remote.removes == ["owned.example"]
     reconcile(remote, store, {"other.example": [a]}, {"a"})
@@ -67,7 +69,7 @@ def test_timeout_reconciliation_and_scoped_removal(store, caplog):
     assert "other.example" in remote.rows
     remote.rows["other.example"].update(groups=[7])
     reconcile(remote, store, {}, set())
-    assert store.entries()["other.example"]["status"] == "unverified"
+    assert store.entries()["other.example"].status == "unverified"
     assert remote.rows["other.example"]["groups"] == [7]
     assert remote.rows["manual.example"]["groups"] == [3]
     assert "pihole_entry_ownership_unverified" in caplog.text
@@ -109,7 +111,7 @@ def test_worker_publishes_only_current_evidence_and_reconciles_after_recovery(st
         run(store.engine, 48)
         sync(store.engine, remote, store, 48)
         assert remote.adds == ["owned.example"]
-        assert store.entries()["owned.example"]["evidence"][0]["generation"] == 1
+        assert store.entries()["owned.example"].evidence[0]["generation"] == 1
         repository.failed(now, "collection_failed")
         sync(store.engine, remote, store, 48)
         assert remote.removes == []
@@ -159,7 +161,7 @@ def test_carioca_mode_sends_only_domains_at_or_above_cutoff(carioca_store, engin
     remote = Remote()
     sync(carioca_store.engine, remote, carioca_store, 48)
     assert remote.adds == ["high.example"]
-    evidence = carioca_store.entries()["high.example"]["evidence"][0]
+    evidence = carioca_store.entries()["high.example"].evidence[0]
     assert evidence["model"] == "carioca" and evidence["scoring_run_id"] == str(summary.run_id)
     assert evidence["priority_score"] >= 50
     with carioca_store.engine.connect() as connection:
@@ -177,7 +179,7 @@ def test_carioca_mode_without_or_with_stale_run_sends_nothing_and_keeps_entries(
         connection.execute(text("UPDATE scoring.execucao_scoring SET finished_at = now() - interval '49 hours'"))
     sync(carioca_store.engine, remote, carioca_store, 48)
     assert remote.removes == [] and "high.example" in remote.rows
-    assert carioca_store.entries()["high.example"]["status"] == "confirmed"
+    assert carioca_store.entries()["high.example"].status == "confirmed"
 
 
 def test_carioca_mode_skips_untrusted_source(carioca_store, engine):

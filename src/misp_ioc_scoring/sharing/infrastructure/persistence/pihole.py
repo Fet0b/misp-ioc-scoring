@@ -3,6 +3,8 @@ from uuid import uuid4
 from sqlalchemy import JSON, bindparam, text
 from sqlalchemy.dialects.postgresql import insert
 
+from misp_ioc_scoring.sharing.domain.pihole_entries import ManagedEntry
+
 from .models import PiHolePolicyModel
 
 from misp_ioc_scoring.shared.database import transaction
@@ -33,7 +35,8 @@ class Store:
             rows = session.execute(text(
                 "SELECT * FROM sharing.pihole_entry WHERE destination=:destination"
             ), {"destination": self.destination}).mappings()
-            return {row["hostname"]: dict(row) for row in rows}
+            return {row["hostname"]: ManagedEntry(row["hostname"], row["marker"], row["remote_id"], row["status"],
+                                                  row["evidence"]) for row in rows}
 
     def save(self, host, marker, remote_id, status, evidence):
         query = text("""
