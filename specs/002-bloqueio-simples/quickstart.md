@@ -12,7 +12,7 @@ Use um ambiente descartável para validar a coleta, o scoring simples e a reconc
 
 Usar uma instância Pi-hole v6 isolada, consultar `/api/docs` da versão e configurar endpoint, credencial por referência de segredo e `SHARING_PIHOLE_ENABLED=true`, mantendo `SHARING_MISP_ENABLED=false`. Com `PIHOLE_SCORE_MODEL=default`, avaliar um domínio e uma URL e verificar que apenas hostnames exatos elegíveis aparecem na lista gerenciada, com vínculo ao atributo de origem. Confirmar que uma URL com caminho bloqueia o hostname inteiro e que subdomínios não são incluídos automaticamente.
 
-Repetir envio e simular timeout; não devem surgir duplicatas. Criar entrada manual preexistente, retirar elegibilidade das evidências e verificar que apenas entradas comprovadamente criadas pelo projeto são removidas. Simular coleta incompleta e garantir suspensão de remoções. Testar flags desativadas e ausência de segredos de destinos não usados. Para `carioca`, fornecer corte explícito e configuração aprovada quando o motor existir; até lá verificar erro claro ao habilitar. Efetuar levantamento agregado de tipo/categoria por origem com instâncias autorizadas ou dados já coletados; documentar indisponibilidade quando não houver dados.
+Repetir envio e simular timeout; não devem surgir duplicatas. Criar entrada manual preexistente, retirar elegibilidade das evidências e verificar que apenas entradas comprovadamente criadas pelo projeto são removidas. Simular coleta incompleta e garantir suspensão de remoções. Testar flags desativadas e ausência de segredos de destinos não usados. Para `carioca`, ativar `SCORING_CARIOCA_ENABLED=true` com configuração aprovada e fornecer `PIHOLE_CARIOCA_MIN_SCORE`; verificar que só domínios e hostnames acima do corte são enviados, que URLs ficam de fora e que, sem execução vigente ou com score vencido, nada é enviado nem removido. Sem CARIOCA ativo, a ativação falha com `PIHOLE_REQUIRES_SCORING_CARIOCA_ENABLED`. Efetuar levantamento agregado de tipo/categoria por origem com instâncias autorizadas ou dados já coletados; documentar indisponibilidade quando não houver dados.
 
 Com configuração de banco e segredos da coleta pronta, habilite o perfil com
 `docker compose --profile scoring up --build`. Configure
@@ -52,3 +52,13 @@ A confirmação pelo DNS com uma instância Pi-hole v6 isolada segue pendente.
 O ambiente local tinha o binário do Compose para resolver a configuração,
 mas não dispunha de um daemon Docker nem de um Pi-hole de teste. Também não
 havia dados autorizados de peers para produzir contagens empíricas de MISP.
+
+
+## Verificação de 2026-11-24 (T040, registrada pela T092 da 001)
+
+- A suíte completa rodou com PostgreSQL 16.2 descartável (`TEST_DATABASE_URL`): 265
+  testes passaram, inclusive os de bloqueio simples, Pi-hole (`default` e `carioca`),
+  migrations e caracterização.
+- **Não executados**: `docker compose config` e o cenário com Pi-hole v6 isolado,
+  porque o ambiente não tinha Docker. As fixtures estão em `tests/e2e/`
+  (`E2E_COMPOSE=true`).

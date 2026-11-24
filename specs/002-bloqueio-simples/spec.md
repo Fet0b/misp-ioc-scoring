@@ -74,7 +74,7 @@ Como operador, quero habilitar o envio ao Pi-hole separadamente do envio a peers
 **Cenários de aceitação**:
 
 1. **Given** envio Pi-hole habilitado e modelo `default`, **When** uma decisão simples válida é verdadeira, **Then** o hostname elegível é sincronizado com o Pi-hole.
-2. **Given** envio Pi-hole com modelo `carioca`, **When** o motor ainda não está implementado, **Then** a ativação falha com erro claro. Após a implementação futura do motor, um score válido que atinja o corte configurado poderá habilitar a sincronização; sem score válido ou corte não haverá envio.
+2. **Given** envio Pi-hole com modelo `carioca`, **When** o CARIOCA está ativo com configuração aprovada, **Then** só domínios e hostnames com score válido da execução vigente que atinja o corte configurado são sincronizados; sem execução vigente, com score vencido ou sem corte não há envio, e a ativação sem CARIOCA ativo falha com erro claro.
 3. **Given** URL elegível, **When** seu hostname é enviado, **Then** o bloqueio se aplica ao hostname inteiro, não ao caminho específico; essa ampliação e o atributo de origem ficam rastreáveis.
 4. **Given** flags independentes, **When** um destino está desabilitado, **Then** nenhum envio é feito para esse destino.
 5. **Given** um hostname anteriormente gerenciado que deixou de ter qualquer evidência elegível, **When** a reconciliação é executada com evidência confiável, **Then** somente a entrada gerenciada pelo projeto é retirada; entradas manuais de terceiros não são alteradas.
@@ -82,7 +82,7 @@ Como operador, quero habilitar o envio ao Pi-hole separadamente do envio a peers
 ### Requisitos adicionais
 
 - **FR-007**: Controlar o envio ao MISP e ao Pi-hole por flags independentes, ambas desativadas por padrão. Esta entrega implementa o destino Pi-hole; o transporte MISP permanece futuro e ativar sua flag antes da implementação falha com erro claro.
-- **FR-008**: Selecionar o score do Pi-hole por ambiente: `default` usa decisão simples; `carioca` exige resultado CARIOCA válido e corte configurado explicitamente entre 0 e 100. Não inventar score ou habilitar o CARIOCA inexistente; se indisponível, a ativação deve falhar de forma clara.
+- **FR-008**: Selecionar o score do Pi-hole por ambiente: `default` usa decisão simples; `carioca` exige resultado CARIOCA válido da execução vigente e corte configurado explicitamente entre 0 e 100, e envia só `domain` e `hostname` (URL fica fora do CARIOCA). Não inventar score; sem CARIOCA ativo e aprovado, a ativação deve falhar de forma clara.
 - **FR-009**: Derivar hostname normalizado de URL elegível ou usar domínio elegível; rejeitar IP literal, host inválido e formatos não suportados, preservando o valor original e explicando o alcance do bloqueio.
 - **FR-010**: Enviar, acompanhar e reconciliar entradas gerenciadas de forma idempotente, com registro de origem, score, tentativa, confirmação e erro; preservar entradas manuais, outros grupos e permissões do Pi-hole.
 - **FR-011**: Respeitar warninglists, frescor e dados confiáveis para ambos os modelos; falhas de coleta ou de comunicação não devem criar inclusão ou remoção em massa baseada em snapshot incompleto.
