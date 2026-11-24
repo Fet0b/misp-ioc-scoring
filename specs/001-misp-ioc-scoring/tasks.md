@@ -59,21 +59,21 @@ de domínio que o CARIOCA reutiliza.
 
 ### D1–D2: tipos de domínio na API da coleta e confiança da origem
 
-- [ ] T006 [P] Criar testes unitários em `tests/unit/test_source_snapshot.py` para `SourceSnapshot.trusted(now, max_age)`: falso com `generation == 0`, com `status != "completed"`, com `last_success_at` nulo e com `last_success_at <= now - max_age`; verdadeiro caso contrário. As fronteiras devem bater com o SQL atual de `unavailable_blocking_sources` em `<pkg>/collection/api.py`.
-- [ ] T007 Criar `<pkg>/collection/domain/snapshots.py` com as dataclasses congeladas de `data-model.md` ("Tipos de domínio do ajuste de DDD"):
+- [X] T006 [P] Criar testes unitários em `tests/unit/test_source_snapshot.py` para `SourceSnapshot.trusted(now, max_age)`: falso com `generation == 0`, com `status != "completed"`, com `last_success_at` nulo e com `last_success_at <= now - max_age`; verdadeiro caso contrário. As fronteiras devem bater com o SQL atual de `unavailable_blocking_sources` em `<pkg>/collection/api.py`.
+- [X] T007 Criar `<pkg>/collection/domain/snapshots.py` com as dataclasses congeladas de `data-model.md` ("Tipos de domínio do ajuste de DDD"):
   - `SourceSnapshot(source_instance_id, generation, status, last_success_at)` com `trusted(now, max_age)`;
   - `ObservationSnapshot` (campos de `Observation` mais `ioc_id`, `normalized_value`, `input_revision`);
   - `CollectionSnapshot(sources, observations, warninglists, rejections)`.
 
   `IndicatorRejection` em `<pkg>/collection/domain/rejections.py` ganha `attribute_id: int | None = None`, que `scoring` já lê.
-- [ ] T008 Em `<pkg>/collection/api.py`:
+- [X] T008 Em `<pkg>/collection/api.py`:
   - implementar `collection_snapshot(session) -> CollectionSnapshot`, convertendo os modelos ORM em tipos de domínio dentro da própria função (observações ativas e removidas, como `blocking_snapshot` faz hoje);
   - implementar `untrusted_sources(session, now, max_age)` usando `SourceSnapshot.trusted`;
   - implementar `source_generations(session)`;
   - manter `blocking_snapshot`, `unavailable_blocking_sources` e `blocking_generations` como aliases finos até T011 ([contracts/collection-api.md](./contracts/collection-api.md), "Transição").
-- [ ] T009 Adaptar `<pkg>/scoring/application/simple_blocking.py::evaluate` e `<pkg>/scoring/infrastructure/persistence/simple_blocking.py` para consumir `CollectionSnapshot`. Usar `source.trusted(as_of, max_age)` no lugar da checagem manual de `generation`, `status` e `last_success_at` (D2). Nenhum atributo de modelo ORM pode ser lido fora de `collection`. T003 e `tests/integration/test_simple_blocking.py` devem continuar idênticos.
-- [ ] T010 Adaptar `<pkg>/sharing/infrastructure/scheduling/scheduler.py` para `untrusted_sources` e `source_generations`; rodar T003 e `tests/integration/test_pihole_sharing.py`.
-- [ ] T011 Remover os aliases `blocking_snapshot`, `unavailable_blocking_sources` e `blocking_generations` de `<pkg>/collection/api.py` e atualizar os testes que os chamam (`tests/integration/test_blocking_collection_snapshot.py`).
+- [X] T009 Adaptar `<pkg>/scoring/application/simple_blocking.py::evaluate` e `<pkg>/scoring/infrastructure/persistence/simple_blocking.py` para consumir `CollectionSnapshot`. Usar `source.trusted(as_of, max_age)` no lugar da checagem manual de `generation`, `status` e `last_success_at` (D2). Nenhum atributo de modelo ORM pode ser lido fora de `collection`. T003 e `tests/integration/test_simple_blocking.py` devem continuar idênticos.
+- [X] T010 Adaptar `<pkg>/sharing/infrastructure/scheduling/scheduler.py` para `untrusted_sources` e `source_generations`; rodar T003 e `tests/integration/test_pihole_sharing.py`.
+- [X] T011 Remover os aliases `blocking_snapshot`, `unavailable_blocking_sources` e `blocking_generations` de `<pkg>/collection/api.py` e atualizar os testes que os chamam (`tests/integration/test_blocking_collection_snapshot.py`).
 
 ### D3: índice de warninglist
 

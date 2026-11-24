@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from sqlalchemy import JSON, bindparam, text
 
-from misp_ioc_scoring.collection.api import blocking_snapshot, blocking_warninglist_membership
+from misp_ioc_scoring.collection.api import blocking_warninglist_membership, collection_snapshot
 from misp_ioc_scoring.shared.database import transaction
 from ...application.simple_blocking import evaluate
 
@@ -29,7 +29,7 @@ def run(engine, max_age_hours):
                 return
             session.execute(text("SELECT pg_advisory_xact_lock(874201)"))
             as_of = params["as_of"] = datetime.now(timezone.utc)
-            snapshot = blocking_snapshot(session)
+            snapshot = collection_snapshot(session)
             session.execute(text("""
                 INSERT INTO scoring.execucao_bloqueio VALUES (:id, :as_of, NULL, 'default-v1', 'running')
             """), params)

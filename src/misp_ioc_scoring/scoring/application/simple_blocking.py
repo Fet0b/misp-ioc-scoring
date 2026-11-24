@@ -6,23 +6,24 @@ from ..domain.simple_blocking import decision
 
 
 def evaluate(snapshot, as_of, max_age, membership):
-    endpoints, observations, warnings, rejections = snapshot
+    """Yield one decision per known observation and rejection of a `CollectionSnapshot`."""
     by_source = defaultdict(list)
-    for item in warnings:
+    for item in snapshot.warninglists:
         by_source[item.source_instance_id].append(item)
-    rejected = {(item.source_instance_id, item.attribute_uuid): item for item in rejections}
+    rejected = {(item.source_instance_id, item.attribute_uuid): item for item in snapshot.rejections}
 
-    for observation, value in observations:
+    for observation in snapshot.observations:
         key = (observation.source_instance_id, observation.attribute_uuid)
         rejection = rejected.pop(key, None)
-        source = endpoints[key[0]]
+        source = snapshot.sources[key[0]]
         timestamp = observation.source_modified_at
         expires_at = as_of + max_age
         warning = None
-        if source.generation and source.status == "completed" and source.last_success_at:
-            expires_at = min(expires_at, source.last_success_at + max_age)
-            if as_of < expires_at:
-                warning = membership(by_source[key[0]], observation.misp_type, value)
+        valid_until = source.valid_until(max_age)
+        if valid_until is not None:
+            expires_at = min(expires_at, valid_until)
+            if source.trusted(as_of, max_age):
+                warning = membership(by_source[key[0]], observation.misp_type, observation.normalized_value)
         reason = "rejected" if rejection else decision(
             kind=observation.misp_type, to_ids=observation.to_ids,
             analysis=observation.event_analysis, removed=observation.removed_at is not None,
@@ -37,6 +38,6 @@ def evaluate(snapshot, as_of, max_age, membership):
                                  to_ids=observation.to_ids, analysis=observation.event_analysis))
     for key, item in rejected.items():
         yield dict(source_instance_id=key[0], attribute_uuid=key[1], attribute_id=item.attribute_id,
-                   generation=endpoints[key[0]].generation, block=False, reason="rejected",
+                   generation=snapshot.sources[key[0]].generation, block=False, reason="rejected",
                    as_of=as_of, expires_at=as_of, evidence=dict(kind=item.misp_type,
                                                   max_age_hours=max_age.total_seconds() / 3600))

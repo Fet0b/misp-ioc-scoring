@@ -5,7 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from misp_ioc_scoring.collection.api import active_blocking_values, blocking_generations, unavailable_blocking_sources
+from misp_ioc_scoring.collection.api import active_blocking_values, source_generations, untrusted_sources
 from misp_ioc_scoring.scoring.api import blocking_decision, effective_blocks
 from misp_ioc_scoring.shared.database import transaction
 from ...application.sync_pihole import reconcile
@@ -20,9 +20,9 @@ def sync(engine, client, store, max_age_hours):
         store.record_policy(session)
         with transaction(engine) as snapshot:
             snapshot.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
-            unavailable = unavailable_blocking_sources(
+            unavailable = untrusted_sources(
                 snapshot, datetime.now(timezone.utc), timedelta(hours=max_age_hours))
-            generations = blocking_generations(snapshot)
+            generations = source_generations(snapshot)
             blocks = {(row["source_instance_id"], row["attribute_uuid"]): row
                       for row in effective_blocks(snapshot)}
             desired = defaultdict(list)
@@ -42,7 +42,7 @@ def sync(engine, client, store, max_age_hours):
 
         def revalidate(operation, host, evidence):
             with transaction(engine) as check:
-                if blocking_generations(check) != generations:
+                if source_generations(check) != generations:
                     return False
                 before = datetime.now(timezone.utc)
                 if operation == "add":
@@ -50,7 +50,7 @@ def sync(engine, client, store, max_age_hours):
                         (row := blocking_decision(check, item["source"], attribute_uuid=UUID(item["attribute"])))
                         and row["block"] and row["as_of"].isoformat() == item["as_of"]
                         for item in evidence)
-                if {item["source"] for item in evidence} & unavailable_blocking_sources(
+                if {item["source"] for item in evidence} & untrusted_sources(
                     check, before, timedelta(hours=max_age_hours)):
                     return False
                 for item in evidence:
