@@ -392,3 +392,28 @@ dos casos de referência: página do Notion "CARIOCA — fórmulas e exemplos re
   `simple_blocking.run`, o job CARIOCA e o `scheduler.sync` chamando a aplicação a
   partir da infraestrutura, o que quebraria o próprio contrato do ajuste D8. Os
   entrypoints já são, pelo plano, a única camada autorizada a conhecer tudo.
+
+### Benchmark do CARIOCA (SC-011)
+
+- **Decisão**: cálculo em memória, em Python puro, sobre o `CollectionSnapshot` lido numa
+  transação `REPEATABLE READ`; gravação em lotes de 1.000 linhas.
+- **Evidência** (2026-11-24, `tests/benchmark/test_scoring_performance.py`, com
+  `RUN_BENCHMARK=true`): população sintética de 283.500 observações e 269.787 IOCs
+  válidos (27 organizações, duas com cerca de 92% dos pares, 1.600 eventos com tamanhos
+  em Pareto). O `calculate` levou 10,3 s; o cálculo com a gravação no PostgreSQL 16 local
+  levou 42,6 s, contra a meta de 1 hora.
+- **Pendência**: a conferência da tabela de fontes do Notion §4 (CIRCL S' 100;
+  CthulhuSPRL.be 59,92; Krawczyk 47,05; PageRank do CIRCL 0,40966) exige
+  `BENCHMARK_DATABASE_URL` com uma cópia do MISP de estudos, que não está no repositório.
+- **Alternativa**: cálculo em SQL, descartado enquanto a memória couber com folga.
+
+### Formato da configuração CARIOCA
+
+- **Decisão**: `config/carioca-orgc-proxy-v3.yaml` é YAML escrito no subconjunto JSON
+  (todo JSON é YAML 1.2 válido), com comentários só no cabeçalho, e é lido com `json`
+  da biblioteca padrão.
+- **Racional**: o projeto não tem dependência de YAML, e a Constituição V pede não
+  adicionar dependência sem necessidade. O `content_hash` é calculado sobre o conteúdo
+  canônico (chaves ordenadas), então comentários e formatação não o mudam.
+- **Alternativa**: adicionar PyYAML; fica para o dono decidir se o YAML livre for
+  necessário.

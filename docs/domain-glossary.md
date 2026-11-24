@@ -20,3 +20,5 @@
 | Decisão de bloqueio | Avaliação booleana de uma Observação de origem, identificada pelo UUID de atributo e pela origem. O ID numérico é local à origem. | score numérico |
 | Destino Pi-hole | Instância DNS que recebe hostnames exatos. Uma URL contribui com seu hostname inteiro. | filtro de caminho |
 | Entrada gerenciada | Regra DNS cuja propriedade o projeto confirma pelo ID remoto e pela marca no comentário. | entrada manual |
+| Avaliação de observação | Componentes Source, Event e Attribute de uma Observação de origem válida numa execução, com a prioridade resultante. | score do atributo, nota parcial |
+| Observação vencedora | Observação de origem de maior prioridade de um IOC numa execução; o Resultado de score do IOC usa os componentes dela. Empate: `source_created_at` mais antigo, depois origem e UUID. | observação principal, melhor atributo |
