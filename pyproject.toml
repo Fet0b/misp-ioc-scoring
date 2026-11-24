@@ -25,6 +25,10 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
 [tool.importlinter]
 root_packages = ["misp_ioc_scoring", "tools"]
 include_external_packages = true
@@ -64,6 +68,12 @@ name = "sharing application uses ports"
 type = "forbidden"
 source_modules = ["misp_ioc_scoring.sharing.application"]
 forbidden_modules = ["misp_ioc_scoring.sharing.adapters", "misp_ioc_scoring.sharing.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "domain stays free of persistence and transport libraries"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.collection.domain", "misp_ioc_scoring.scoring.domain", "misp_ioc_scoring.sharing.domain"]
+forbidden_modules = ["sqlalchemy", "pymisp", "pydantic"]
 
 [[tool.importlinter.contracts]]
 name = "shared dependency direction"
