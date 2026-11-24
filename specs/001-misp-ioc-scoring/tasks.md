@@ -139,11 +139,11 @@ população vazia. Com `approved: false`, o serviço não inicia.
 
 ### Tests for User Story 2
 
-- [ ] T023 [P] [US2] Criar `tests/unit/test_carioca_components.py`:
+- [X] T023 [P] [US2] Criar `tests/unit/test_carioca_components.py`:
   - mapeamentos TL (`threat_level_id` 1/2/3/4 → 100/66/33/0) e SA (`analysis` 0/1/2 → 0/50/100);
   - Event `0,4·TL + 0,2·SA + 0,4·CADE'` (`hotels-stays55501.com`: TL 33, SA 50, CADE' 19,544 → E 31,017; evento 19: TL 100, SA 100, CADE 18,7994 → 67,5198 no cálculo v2);
   - frescor contra `as_of` pelos três `DecayGroup` (T016), sem usar o relógio do sistema.
-- [ ] T024 [P] [US2] Criar `tests/unit/test_cade.py`:
+- [X] T024 [P] [US2] Criar `tests/unit/test_cade.py`:
   - `CS_i = (1 − e^(−n²/(2σ²)))·100` com β = 1/16;
   - `hotels-stays55501.com`: n = 60/48/10 e σ = 917,29/165,15/0,45 → CS 0,2137/4,1359/100,0000 e CADE 6,5218;
   - evento 19 → CADE 18,7994;
@@ -151,26 +151,26 @@ população vazia. Com `approved: false`, o serviço não inicia.
   - MinMax entre eventos (6,5218 com mínimo 0,0000037 e máximo 33,3707 → 19,544).
 
   É o **nível 1** da SC-015: σ entra como dado do teste, com os valores do Notion (σ populacional bruto). Não usa o estimador da configuração.
-- [ ] T025 [P] [US2] Criar `tests/unit/test_feed_rank.py`:
+- [X] T025 [P] [US2] Criar `tests/unit/test_feed_rank.py`:
   - primeiro publicador por par `(tipo, valor)` com desempate por `source_created_at` e depois `orgc_uuid`;
   - grafo dirigido "quem publicou depois aponta para quem publicou antes", com peso = pares em comum;
   - PageRank 0,85 com 50 iterações e nós sem saída redistribuídos uniformemente (`dangling: uniform`);
   - `V_o = 50·c_o·100 + 50·MinMax(PR)_o` e `Source = MinMax(V_o)`;
   - grafo de 3 organizações com valores calculados à mão e documentados no teste;
   - só observações publicadas e `to_ids=true` contam.
-- [ ] T026 [P] [US2] Criar `tests/unit/test_population_priority.py`:
+- [X] T026 [P] [US2] Criar `tests/unit/test_population_priority.py`:
   - elegibilidade e motivos de exclusão `type_without_decay_group` (inclui `url` e tipos fora da lista fechada), `expired`, `not_to_ids`, `unpublished` (evento não publicado), `missing_data` (TL, SA, timestamp, categoria ou `orgc` ausente ou desconhecido) e `incomplete_configuration`;
   - motivo do IOC pela precedência `incomplete_configuration` > `missing_data` > `unpublished` > `not_to_ids` > `type_without_decay_group` > `expired`; IOC com uma observação válida e outra sem `orgc` não é excluído;
   - MinMax com máximo = mínimo dá 50 e registra o componente em `minmax_degenerate`;
   - população vazia conclui sem scores e com aviso;
   - SPOTIS (ideal 100, pesos 1/3) igual a `(S'+E'+A')/3` em 1.000 triplas aleatórias com semente fixa;
   - escopos de normalização: `CADE'` entre eventos com observação `to_ids` ativa, `E'` entre eventos com observação válida, `A'` e `S'` entre observações válidas.
-- [ ] T027 [P] [US2] Criar `tests/unit/test_aggregation_selection.py`:
+- [X] T027 [P] [US2] Criar `tests/unit/test_aggregation_selection.py`:
   - o IOC recebe a observação de maior `priority`;
   - em empate vence o menor `source_created_at` e depois o menor `(source_instance_id, attribute_uuid)`;
   - `observations_evaluated` correto;
   - `rank` denso por prioridade decrescente; `in_top_n` marca exatamente os `top_n` primeiros, inclusive com empate na fronteira e com `top_n` maior que a população.
-- [ ] T028 [P] [US2] Criar `tests/unit/test_carioca_configuration.py`:
+- [X] T028 [P] [US2] Criar `tests/unit/test_carioca_configuration.py`:
   - rejeitar YAML com peso negativo, pesos que não somam 1, `top_n` ausente, estimador de σ ausente, regra σ = 0 ausente, `type_groups` ausente ou com `url`, ou `aggregation` diferente de `max-observation`;
   - `content_hash` estável para o mesmo conteúdo canônico;
   - `approved: false` impede o cálculo com erro explícito;
@@ -191,7 +191,7 @@ população vazia. Com `approved: false`, o serviço não inicia.
 
 - [ ] T033 [P] [US2] Avaliar os estimadores de σ (limite no percentil 95 e escala log) sobre os dados do MISP de estudos descritos no Caderno de Projetos (Notion), tratando categorias com σ = 0. Registrar evidência e configuração proposta em `docs/sigma-estimator-evaluation.md`, com os valores recalculados (σ, CADE, CADE', E e P) de `hotels-stays55501.com` e do evento 19 também em `tests/unit/fixtures/carioca_reference_approved.json`. **Depende do dono**: exige acesso aos dados do MISP de estudos, que não estão no repositório. Isso bloqueia a aprovação (T043) e o nível 2 da SC-015 (T034), não o código.
 - [ ] T034 [US2] Criar `tests/unit/test_carioca_reference_approved.py` (**nível 2** da SC-015): carrega a configuração de `config/carioca-orgc-proxy-v3.yaml` e os valores de `tests/unit/fixtures/carioca_reference_approved.json` (T033) e confere σ, CADE, CADE', E e P dos casos de referência. Fica com `pytest.skip` explícito enquanto o arquivo de valores não existir ou `approved` for `false`; com `approved: true`, a ausência do arquivo faz o teste falhar.
-- [ ] T035 [P] [US2] Implementar `<pkg>/scoring/domain/carioca_configuration.py`, com a dataclass congelada `CariocaConfiguration` e o carregamento e validação do YAML:
+- [X] T035 [P] [US2] Implementar `<pkg>/scoring/domain/carioca_configuration.py`, com a dataclass congelada `CariocaConfiguration` e o carregamento e validação do YAML:
   - α 0,4/0,2/0,4 e β 1/16 (não negativos, somando 1); `model_id` `carioca-orgc-proxy-v3` e `cade_id` `cade-seminormal-v2`;
   - σ: `method`, `version` e `zero_rule`;
   - `type_groups` fechado (hash: md5, sha1, sha256, sha512, ssdeep, imphash, tlsh, filename, malware-sample e `filename|<hash>`; ip: ip-src, ip-dst, ip-src|port, ip-dst|port; domain: domain, hostname, domain|ip; sem `url`);
@@ -199,12 +199,12 @@ população vazia. Com `approved: false`, o serviço não inicia.
   - `feed_rank` (damping 0,85, iterations 50, dangling uniform, pesos 50/50) e SPOTIS (pesos 1/3, ideal 100);
   - `top_n` sem default; `approved`, `approved_by`, `approved_at`, `evidence_ref`;
   - `content_hash` SHA-256 do YAML canônico. O MinMax com máximo = mínimo é fixo em 50 e não configurável.
-- [ ] T036 [US2] Implementar `<pkg>/scoring/domain/carioca_inputs.py`: mapear TL e SA, e mapear tipo → `DecayGroup` pela configuração. Valores ausentes ou desconhecidos (TL, SA, timestamp, categoria ou `orgc_uuid`) dão resultado inválido explícito com motivo `missing_data`, e observação de evento não publicado dá `unpublished`; nunca um score inventado.
-- [ ] T037 [US2] Implementar `<pkg>/scoring/domain/cade.py`: contagem `n_i` por evento sobre observações `to_ids=true` ativas (reaproveitando `collection/domain/event_aggregates.CATEGORIES` via `collection.api`); σ por categoria com o estimador aprovado e a regra σ = 0; `CS_i`; CADE bruto; `CADE'` por MinMax no escopo `cade`.
-- [ ] T038 [US2] Implementar `<pkg>/scoring/domain/carioca_components.py`: `A` via `DecayGroup.freshness` com `t` = dias entre `source_modified_at` e `as_of`; Event `0,4·TL + 0,2·SA + 0,4·CADE'`; tudo contra `as_of`, nunca contra o relógio.
-- [ ] T039 [US2] Implementar `<pkg>/scoring/domain/feed_rank.py` em Python puro, conforme T025, devolvendo, por organização, `first_pairs`, `contribution`, `pagerank`, `pagerank_norm`, `value` e `source_norm`. Gera erro de configuração quando `feed_rank` está ausente e expõe o texto da limitação do proxy para a explicação.
-- [ ] T040 [US2] Implementar `<pkg>/scoring/domain/population.py` (elegibilidade por observação e motivos de exclusão por IOC, conforme `data-model.md`; um IOC com ao menos uma observação válida não é excluído) e `<pkg>/scoring/domain/priority.py` (MinMax com o 50 fixo e registro em `minmax_degenerate`; SPOTIS com pesos iguais, resultado de 0 a 100).
-- [ ] T041 [US2] Implementar `<pkg>/scoring/domain/aggregation.py` (observação vencedora com o desempate do plano e `observations_evaluated`) e `<pkg>/scoring/domain/selection.py` (`rank` denso e `in_top_n` com o `top_n` da configuração).
+- [X] T036 [US2] Implementar `<pkg>/scoring/domain/carioca_inputs.py`: mapear TL e SA, e mapear tipo → `DecayGroup` pela configuração. Valores ausentes ou desconhecidos (TL, SA, timestamp, categoria ou `orgc_uuid`) dão resultado inválido explícito com motivo `missing_data`, e observação de evento não publicado dá `unpublished`; nunca um score inventado.
+- [X] T037 [US2] Implementar `<pkg>/scoring/domain/cade.py`: contagem `n_i` por evento sobre observações `to_ids=true` ativas (reaproveitando `collection/domain/event_aggregates.CATEGORIES` via `collection.api`); σ por categoria com o estimador aprovado e a regra σ = 0; `CS_i`; CADE bruto; `CADE'` por MinMax no escopo `cade`.
+- [X] T038 [US2] Implementar `<pkg>/scoring/domain/carioca_components.py`: `A` via `DecayGroup.freshness` com `t` = dias entre `source_modified_at` e `as_of`; Event `0,4·TL + 0,2·SA + 0,4·CADE'`; tudo contra `as_of`, nunca contra o relógio.
+- [X] T039 [US2] Implementar `<pkg>/scoring/domain/feed_rank.py` em Python puro, conforme T025, devolvendo, por organização, `first_pairs`, `contribution`, `pagerank`, `pagerank_norm`, `value` e `source_norm`. Gera erro de configuração quando `feed_rank` está ausente e expõe o texto da limitação do proxy para a explicação.
+- [X] T040 [US2] Implementar `<pkg>/scoring/domain/population.py` (elegibilidade por observação e motivos de exclusão por IOC, conforme `data-model.md`; um IOC com ao menos uma observação válida não é excluído) e `<pkg>/scoring/domain/priority.py` (MinMax com o 50 fixo e registro em `minmax_degenerate`; SPOTIS com pesos iguais, resultado de 0 a 100).
+- [X] T041 [US2] Implementar `<pkg>/scoring/domain/aggregation.py` (observação vencedora com o desempate do plano e `observations_evaluated`) e `<pkg>/scoring/domain/selection.py` (`rank` denso e `in_top_n` com o `top_n` da configuração).
 - [ ] T042 [US2] Criar os mapeamentos em `<pkg>/scoring/infrastructure/persistence/carioca.py` e a migration `migrations/versions/0008_carioca_scoring.py` (`down_revision` = `0007_pihole_policy`), no schema `scoring`:
   - `configuracao_carioca` (versão, hash, conteúdo, aprovação);
   - `execucao_scoring` (`as_of`, início, fim, estado `running`/`completed`/`failed`, como `execucao_bloqueio`, contadores, `warnings`);
