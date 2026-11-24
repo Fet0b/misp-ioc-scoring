@@ -3,7 +3,11 @@ import ipaddress
 import re
 from urllib.parse import urlsplit, urlunsplit
 
+from .indicators import DOMAIN_TYPES, HASH_TYPES, IP_TYPES, URL_TYPES
+
 _HASH_LENGTHS = {'md5': 32, 'sha1': 40, 'sha256': 64, 'sha512': 128}
+assert set(_HASH_LENGTHS) == HASH_TYPES
+_URL_SCHEMES = frozenset({'http', 'https', 'ftp'})
 
 
 class IndicatorRejected(ValueError):
@@ -24,20 +28,20 @@ def _domain(value: str) -> str:
 
 
 def normalize(kind: str, value: str) -> str:
-    supported = {'domain', 'hostname', 'ip-src', 'ip-dst', 'url', *_HASH_LENGTHS,
-                 *('filename|' + h for h in _HASH_LENGTHS)}
+    supported = {*DOMAIN_TYPES, *IP_TYPES, *URL_TYPES, *HASH_TYPES,
+                 *('filename|' + h for h in HASH_TYPES)}
     if kind not in supported:
         raise IndicatorRejected('unsupported')
     try:
         if not isinstance(value, str) or not value or value != value.strip() or any(ord(c) < 32 for c in value):
             raise ValueError
-        if kind in {'domain', 'hostname'}:
+        if kind in DOMAIN_TYPES:
             return _domain(value)
-        if kind in {'ip-src', 'ip-dst'}:
+        if kind in IP_TYPES:
             if '%' in value:
                 raise ValueError
             return str(ipaddress.ip_address(value))
-        if kind in _HASH_LENGTHS:
+        if kind in HASH_TYPES:
             if not re.fullmatch('[0-9a-fA-F]{' + str(_HASH_LENGTHS[kind]) + '}', value):
                 raise ValueError
             return value.lower()
@@ -47,7 +51,7 @@ def normalize(kind: str, value: str) -> str:
                 raise ValueError
             return filename + '|' + normalize(kind.split('|')[1], hash_value)
         parsed = urlsplit(value)
-        if parsed.scheme not in {'http', 'https', 'ftp'} or not parsed.hostname or parsed.username or parsed.password:
+        if parsed.scheme not in _URL_SCHEMES or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError
         host = parsed.hostname
         if ':' in host:
@@ -59,3 +63,35 @@ def normalize(kind: str, value: str) -> str:
         return urlunsplit((parsed.scheme.lower(), host, parsed.path, parsed.query, parsed.fragment))
     except (ValueError, UnicodeError, TypeError):
         raise IndicatorRejected('invalid') from None
+
+
+def dns_hostname(kind: str, value: str) -> str | None:
+    """Exact DNS hostname of a domain or URL indicator, or None.
+
+    `domain`/`hostname` validate the value itself; `url` takes the host of an http,
+    https or ftp URL without userinfo. IP literals, numeric TLDs and single-label
+    hosts give None. A URL host covers the whole host, not only the original path.
+    """
+    try:
+        if kind in DOMAIN_TYPES:
+            host = value
+        elif kind in URL_TYPES:
+            parsed = urlsplit(value)
+            if (parsed.scheme not in _URL_SCHEMES or parsed.username is not None
+                    or parsed.password is not None or not parsed.hostname):
+                return None
+            host = parsed.hostname
+        else:
+            return None
+        host = _domain(host)
+    except (ValueError, UnicodeError, TypeError, AttributeError):
+        return None
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        pass
+    labels = host.split('.')
+    if len(labels) < 2 or labels[-1].isdigit():
+        return None
+    return host

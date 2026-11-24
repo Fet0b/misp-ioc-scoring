@@ -82,18 +82,16 @@ def scoring_env():
         'DATABASE_URL': 'postgresql+psycopg://scoring_sharing@database/db',
         'SCORING_DAILY_CRON': '0 3 * * *', 'SHARING_INTERVAL_SECONDS': '300',
         'SHARING_RETRY_ATTEMPTS': '3', 'SHARING_RETRY_BACKOFF_SECONDS': '5',
-        'CARIOCA_TOP_N': '100', 'CARIOCA_CONFIG_PATH': '/config/carioca.yaml',
+        'CARIOCA_CONFIG_PATH': '/config/carioca.yaml',
         'MISP_REQUEST_TIMEOUT_SECONDS': '60',
         'MISP_PEERS_SECRET_REF': 'file:/run/secrets/peers',
-        'PEER_MINIMUM_SCORES_SECRET_REF': 'file:/run/secrets/minimums',
-        'PEER_CREDENTIALS_SECRET_REF': 'file:/run/secrets/credentials',
     }
 
 
 def test_scoring_flags_and_conditional_settings():
     env = {"DATABASE_URL": scoring_env()["DATABASE_URL"]}
     assert not load_configuration("scoring-sharing", env).simple_scoring_enabled
-    with pytest.raises(ConfigurationError, match="SHARING_MISP_ENABLED_NOT_IMPLEMENTED"):
+    with pytest.raises(ConfigurationError, match="SHARING_MISP_REQUIRES_SCORING_CARIOCA_ENABLED"):
         load_configuration("scoring-sharing", env | {"SHARING_MISP_ENABLED": "true"})
     with pytest.raises(ConfigurationError, match="SCORING_DAILY_CRON"):
         load_configuration("scoring-sharing", env | {"SCORING_SIMPLE_ENABLED": "true"})
@@ -102,7 +100,7 @@ def test_scoring_flags_and_conditional_settings():
         with pytest.raises(ConfigurationError, match="PIHOLE_CARIOCA_MIN_SCORE"):
             load_configuration("scoring-sharing", pihole | {"PIHOLE_CARIOCA_MIN_SCORE": value})
     for value in ("0", "100"):
-        with pytest.raises(ConfigurationError, match="PIHOLE_CARIOCA_NOT_IMPLEMENTED"):
+        with pytest.raises(ConfigurationError, match="PIHOLE_REQUIRES_SCORING_CARIOCA_ENABLED"):
             load_configuration("scoring-sharing", pihole | {"PIHOLE_CARIOCA_MIN_SCORE": value})
     active = env | {"SCORING_SIMPLE_ENABLED": "true", "SCORING_DAILY_CRON": "0 3 * * *",
                     "SHARING_PIHOLE_ENABLED": "true", "PIHOLE_URL": "https://dns.example",
@@ -115,3 +113,38 @@ def test_export_physical_row_limit_is_accepted():
         'DATABASE_URL': 'postgresql+psycopg://observer@database/db',
         'EXPORT_OUTPUT_DIR': '/output', 'EXPORT_MAX_ROWS_PER_SHEET': '1048575',
     }).export_max_rows_per_sheet == 1048575
+
+
+def test_carioca_flag_requires_readable_configuration_and_cron(tmp_path):
+    env = {"DATABASE_URL": scoring_env()["DATABASE_URL"], "SCORING_CARIOCA_ENABLED": "true"}
+    with pytest.raises(ConfigurationError, match="CARIOCA_CONFIG_PATH"):
+        load_configuration("scoring-sharing", env)
+    with pytest.raises(ConfigurationError, match="CARIOCA_CONFIG_PATH"):
+        load_configuration("scoring-sharing", env | {"CARIOCA_CONFIG_PATH": str(tmp_path / "missing.yaml")})
+    path = tmp_path / "carioca.yaml"
+    path.write_text("{}")
+    with pytest.raises(ConfigurationError, match="SCORING_DAILY_CRON"):
+        load_configuration("scoring-sharing", env | {"CARIOCA_CONFIG_PATH": str(path)})
+    config = load_configuration("scoring-sharing", env | {"CARIOCA_CONFIG_PATH": str(path),
+                                                          "SCORING_DAILY_CRON": "0 3 * * *"})
+    assert config.carioca_scoring_enabled and config.carioca_config_path == str(path)
+
+
+def test_misp_sharing_requires_carioca_peers_and_retry_settings(tmp_path):
+    path = tmp_path / "carioca.yaml"
+    path.write_text("{}")
+    env = {"DATABASE_URL": scoring_env()["DATABASE_URL"], "SCORING_CARIOCA_ENABLED": "true",
+           "CARIOCA_CONFIG_PATH": str(path), "SCORING_DAILY_CRON": "0 3 * * *", "SHARING_MISP_ENABLED": "true"}
+    with pytest.raises(ConfigurationError, match="MISP_PEERS_SECRET_REF"):
+        load_configuration("scoring-sharing", env)
+    with pytest.raises(ConfigurationError, match="MISP_PEERS_SECRET_REF"):
+        load_configuration("scoring-sharing", env | {"MISP_PEERS_SECRET_REF": "/plain/path"})
+    env["MISP_PEERS_SECRET_REF"] = "file:/run/secrets/peers"
+    with pytest.raises(ConfigurationError, match="SHARING_INTERVAL_SECONDS"):
+        load_configuration("scoring-sharing", env)
+    complete = env | {"SHARING_INTERVAL_SECONDS": "300", "SHARING_RETRY_ATTEMPTS": "3",
+                      "SHARING_RETRY_BACKOFF_SECONDS": "5", "MISP_REQUEST_TIMEOUT_SECONDS": "30"}
+    config = load_configuration("scoring-sharing", complete)
+    assert config.misp_sharing_enabled and config.sharing_retry_attempts == 3
+    with pytest.raises(ConfigurationError, match="SHARING_RETRY_ATTEMPTS"):
+        load_configuration("scoring-sharing", complete | {"SHARING_RETRY_ATTEMPTS": "0"})

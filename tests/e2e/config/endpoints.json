@@ -1,0 +1,1 @@
+[{"id": "e2e-local", "base_url": "https://misp-local", "credential_secret_ref": "env:E2E_LOCAL_KEY"}]

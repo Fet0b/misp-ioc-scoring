@@ -5,20 +5,15 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from misp_ioc_scoring.collection.domain.observations import Observation
-from misp_ioc_scoring.collection.domain.event_aggregates import category_counts
-from misp_ioc_scoring.collection.domain.warninglists import WarninglistEntry
+from misp_ioc_scoring.collection.domain.event_aggregates import CATEGORIES
+from misp_ioc_scoring.collection.domain.indicators import DOMAIN_TYPES, HASH_TYPES, IP_TYPES, URL_TYPES
+from misp_ioc_scoring.collection.domain.normalization import dns_hostname
+from misp_ioc_scoring.collection.domain.rejections import IndicatorRejection
+from misp_ioc_scoring.collection.domain.snapshots import CollectionSnapshot, ObservationSnapshot, SourceSnapshot
+from misp_ioc_scoring.collection.domain.warninglists import MODES, WarninglistEntry, WarninglistIndex
 from misp_ioc_scoring.collection.infrastructure.persistence.models import (
-    IOCModel, ObservationModel, RejectionModel, WarninglistModel,
+    EndpointModel, IOCModel, ObservationModel, RejectionModel, WarninglistModel,
 )
-
-
-@dataclass(frozen=True)
-class IOCSnapshot:
-    id: UUID
-    type: str
-    normalized_value: str
-    input_revision: int
-    observations: tuple[Observation, ...]
 
 
 @dataclass(frozen=True)
@@ -33,48 +28,9 @@ class CollectionReader:
     def __init__(self, engine):
         self._engine = engine
 
-    def active_iocs(self) -> tuple[IOCSnapshot, ...]:
-        with Session(self._engine) as session:
-            # One SELECT gives IOC revisions and observations from the same DB snapshot.
-            rows = session.execute(select(IOCModel, ObservationModel).join(
-                ObservationModel, IOCModel.id == ObservationModel.ioc_id).where(
-                ObservationModel.removed_at.is_(None))).all()
-            groups = {}
-            for ioc, model in rows:
-                values = {f.name: getattr(model, f.name) for f in fields(Observation)}
-                values['tags'] = tuple(values['tags'])
-                if ioc.id not in groups:
-                    groups[ioc.id] = (ioc, [])
-                groups[ioc.id][1].append(Observation(**values))
-            return tuple(IOCSnapshot(ioc.id, ioc.type, ioc.normalized_value, ioc.input_revision,
-                                     tuple(observations)) for ioc, observations in groups.values())
-
     def current_input_revision(self, ioc_id: UUID) -> int | None:
         with Session(self._engine) as session:
             return session.scalar(select(IOCModel.input_revision).where(IOCModel.id == ioc_id))
-
-    def event_category_counts(self):
-        events = {}
-        for ioc in self.active_iocs():
-            for observation in ioc.observations:
-                key = (observation.source_instance_id, observation.event_uuid)
-                events.setdefault(key, []).append(observation)
-        return {key: category_counts(observations) for key, observations in events.items()}
-
-    def first_publications(self):
-        facts = {}
-        for ioc in self.active_iocs():
-            publications = [o for o in ioc.observations if o.orgc_uuid is not None and o.published]
-            if publications:
-                first = min(publications, key=lambda o: (o.source_created_at, str(o.orgc_uuid)))
-                facts[(ioc.type, ioc.normalized_value)] = (first.orgc_uuid, first.source_created_at)
-        return facts
-
-    def warninglist_membership(self, kind: str, normalized_value: str) -> bool:
-        with Session(self._engine) as session:
-            entries = session.scalars(select(WarninglistModel).where(WarninglistModel.supported.is_(True)))
-            return any(WarninglistEntry(e.source_instance_id, e.list_name, e.list_type,
-                                       e.normalized_value).matches(kind, normalized_value) for e in entries)
 
     def unsupported_warninglist_entries(self) -> tuple[WarninglistEntry, ...]:
         with Session(self._engine) as session:
@@ -95,62 +51,92 @@ class CollectionReader:
         return dict(Counter((r.source_instance_id, r.reason) for r in self.rejections()))
 
 
-def blocking_snapshot(session):
-    """Read under the caller's collection advisory lock."""
-    from .infrastructure.persistence.models import EndpointModel
-
-    endpoints = {item.id: item for item in session.scalars(select(EndpointModel))}
-    observations = session.execute(select(ObservationModel, IOCModel.normalized_value)
-                                   .join(IOCModel, IOCModel.id == ObservationModel.ioc_id)).all()
-    warnings = tuple(session.scalars(select(WarninglistModel)))
-    rejected = tuple(session.scalars(select(RejectionModel)))
-    return endpoints, observations, warnings, rejected
+def _source(model) -> SourceSnapshot:
+    return SourceSnapshot(model.id, model.generation, model.status, model.last_success_at)
 
 
-def blocking_warninglist_membership(entries, kind, value):
-    from ipaddress import ip_address
-    from urllib.parse import urlsplit
-
-    host = urlsplit(value).hostname if kind == "url" else value
-    host_kind = "domain"
-    try:
-        ip_address(host)
-        host_kind = "ip-dst"
-    except ValueError:
-        pass
-    uncertain = False
-    for item in entries:
-        entry = WarninglistEntry(item.source_instance_id, item.list_name,
-                                 item.list_type, item.normalized_value)
-        if not item.supported or not entry.supported:
-            uncertain = True
-        elif entry.matches(kind, value) or (kind == "url" and entry.matches(host_kind, host)):
-            return True
-    return None if uncertain else False
+def _observation(model, normalized_value, input_revision) -> ObservationSnapshot:
+    values = {f.name: getattr(model, f.name) for f in fields(Observation)}
+    values['tags'] = tuple(values['tags'] or ())
+    return ObservationSnapshot(**values, ioc_id=model.ioc_id, normalized_value=normalized_value,
+                               input_revision=input_revision)
 
 
-def active_blocking_values(session):
-    return session.execute(select(
+def collection_snapshot(session) -> CollectionSnapshot:
+    """Sources, active and removed observations, warninglists and rejections.
+
+    Reads inside the caller's transaction. Callers that need a stable view hold the
+    collection advisory lock (874201) or use REPEATABLE READ.
+    """
+    sources = {model.id: _source(model) for model in session.scalars(select(EndpointModel))}
+    rows = session.execute(select(ObservationModel, IOCModel.normalized_value, IOCModel.input_revision)
+                           .join(IOCModel, IOCModel.id == ObservationModel.ioc_id)).all()
+    warninglists = tuple(WarninglistEntry(e.source_instance_id, e.list_name, e.list_type, e.normalized_value)
+                         for e in session.scalars(select(WarninglistModel)))
+    rejections = tuple(IndicatorRejection(
+        source_instance_id=r.source_instance_id, event_uuid=r.event_uuid, attribute_uuid=r.attribute_uuid,
+        misp_type=r.misp_type, raw_value=r.raw_value, reason=r.reason, rejected_at=r.rejected_at,
+        detail=r.detail, attribute_id=r.attribute_id) for r in session.scalars(select(RejectionModel)))
+    return CollectionSnapshot(sources, tuple(_observation(*row) for row in rows), warninglists, rejections)
+
+
+def observations_of(session, ioc_ids) -> dict:
+    """IOC -> tuple of its `ObservationSnapshot`s (active and removed)."""
+    ids = list(ioc_ids)
+    grouped = {}
+    for start in range(0, len(ids), 5000):
+        rows = session.execute(select(ObservationModel, IOCModel.normalized_value, IOCModel.input_revision)
+                               .join(IOCModel, IOCModel.id == ObservationModel.ioc_id)
+                               .where(ObservationModel.ioc_id.in_(ids[start:start + 5000]))).all()
+        for row in rows:
+            observation = _observation(*row)
+            grouped.setdefault(observation.ioc_id, []).append(observation)
+    return {ioc: tuple(items) for ioc, items in grouped.items()}
+
+
+def current_input_revisions(session, ioc_ids) -> dict:
+    """Current `input_revision` of the given IOCs, read in the caller's transaction."""
+    ids = list(ioc_ids)
+    revisions = {}
+    for start in range(0, len(ids), 5000):
+        revisions.update(session.execute(select(IOCModel.id, IOCModel.input_revision)
+                                         .where(IOCModel.id.in_(ids[start:start + 5000]))).all())
+    return revisions
+
+
+def untrusted_sources(session, now, max_age) -> set[str]:
+    """Sources whose last complete snapshot is missing, failed or older than `max_age`."""
+    return {model.id for model in session.scalars(select(EndpointModel))
+            if not _source(model).trusted(now, max_age)}
+
+
+def source_generations(session) -> dict[str, int]:
+    return {source: generation for source, generation in
+            session.execute(select(EndpointModel.id, EndpointModel.generation))}
+
+
+def warninglist_entries(session) -> dict[str, tuple[WarninglistEntry, ...]]:
+    """Warninglist entries grouped by source (supported and unsupported)."""
+    grouped = {}
+    for e in session.scalars(select(WarninglistModel)):
+        grouped.setdefault(e.source_instance_id, []).append(
+            WarninglistEntry(e.source_instance_id, e.list_name, e.list_type, e.normalized_value))
+    return {source: tuple(entries) for source, entries in grouped.items()}
+
+
+def warninglist_index(entries, mode='strict') -> WarninglistIndex:
+    """Index of the warninglist entries of one source; `mode` is `strict` or `fr027`."""
+    if mode not in MODES:
+        raise ValueError('Unknown warninglist mode')
+    return WarninglistIndex(entries)
+
+
+def active_blocking_values(session, types) -> list[tuple]:
+    """(source, attribute UUID, type, category, normalized value) of active observations of `types`."""
+    return [tuple(row) for row in session.execute(select(
         ObservationModel.source_instance_id, ObservationModel.attribute_uuid,
         ObservationModel.misp_type, ObservationModel.category, IOCModel.normalized_value,
     ).join(IOCModel, IOCModel.id == ObservationModel.ioc_id).where(
         ObservationModel.removed_at.is_(None),
-        ObservationModel.misp_type.in_(("domain", "url")),
-    )).all()
-
-
-def unavailable_blocking_sources(session, now, max_age):
-    from .infrastructure.persistence.models import EndpointModel
-
-    return set(session.scalars(select(EndpointModel.id).where(
-        (EndpointModel.generation == 0) | (EndpointModel.status != "completed")
-        | EndpointModel.last_success_at.is_(None)
-        | (EndpointModel.last_success_at <= now - max_age)
-    )))
-
-
-def blocking_generations(session):
-    from .infrastructure.persistence.models import EndpointModel
-
-    rows = session.execute(select(EndpointModel.id, EndpointModel.generation))
-    return {source: generation for source, generation in rows}
+        ObservationModel.misp_type.in_(tuple(types)),
+    ))]

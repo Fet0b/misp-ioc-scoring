@@ -6,7 +6,7 @@ from sqlalchemy import text
 from misp_ioc_scoring.collection.domain.observations import Observation
 from misp_ioc_scoring.collection.infrastructure.persistence.repositories.observations import ObservationsRepository
 from misp_ioc_scoring.scoring.api import blocking_decision
-from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import run
+from misp_ioc_scoring.entrypoints.scoring_sharing import run_simple_blocking as run
 from misp_ioc_scoring.shared.database import transaction
 
 
@@ -24,10 +24,10 @@ def test_collected_attribute_and_stale_decision(engine):
     run(engine, 48)
     with transaction(engine) as session:
         row = blocking_decision(session, "test", attribute_id=42)
-        assert row["block"] and row["attribute_uuid"] == attribute
+        assert row.block and row.attribute_uuid == attribute
     repository.failed(now, "test_failure")
     with transaction(engine) as session:
-        assert not blocking_decision(session, "test", attribute_uuid=attribute)["block"]
+        assert not blocking_decision(session, "test", attribute_uuid=attribute).block
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))
 
@@ -56,8 +56,8 @@ def test_effective_decision_expires_and_observer_cannot_write(engine):
     try:
         with transaction(observer) as session:
             row = blocking_decision(session, "test", attribute_uuid=attribute)
-            assert row["reason"] == "expired" and row["block"] is False
-            assert row["attribute_id"] is None
+            assert row.reason == "expired" and row.block is False
+            assert row.attribute_id is None
             assert blocking_decision(session, "other", attribute_uuid=attribute) is None
         with pytest.raises(DBAPIError), transaction(observer) as session:
             session.execute(text("DELETE FROM scoring.decisao_bloqueio"))
@@ -65,3 +65,26 @@ def test_effective_decision_expires_and_observer_cannot_write(engine):
         observer.dispose()
         with engine.begin() as connection:
             connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))
+
+
+def test_runner_records_failure_and_skips_when_locked(engine):
+    from uuid import uuid4
+    import pytest
+    from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import BlockingRunner
+
+    run_id = uuid4()
+    now = datetime.now(timezone.utc)
+    with pytest.raises(RuntimeError):
+        with BlockingRunner(engine, uuid4) as store:
+            store.start(run_id, now)
+            raise RuntimeError("boom")
+    with engine.connect() as connection:
+        status, as_of = connection.execute(text(
+            "SELECT status, as_of FROM scoring.execucao_bloqueio WHERE id=:id"), {"id": run_id}).one()
+    assert (status, as_of) == ("failed", now)
+    with transaction(engine) as session:
+        session.execute(text("SELECT pg_advisory_xact_lock(874202)"))
+        with BlockingRunner(engine, uuid4) as store:
+            assert store is None
+    with engine.begin() as connection:
+        connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))

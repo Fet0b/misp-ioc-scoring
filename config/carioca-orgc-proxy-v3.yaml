@@ -1,0 +1,109 @@
+# CARIOCA configuration (model carioca-orgc-proxy-v3). YAML written in its JSON subset:
+# keep JSON syntax; comments are only allowed in this header and are stripped by the loader.
+# approved stays false until docs/sigma-estimator-evaluation.md is approved by the owner.
+{
+  "model_id": "carioca-orgc-proxy-v3",
+  "cade_id": "cade-seminormal-v2",
+  "version": "2026-11-24.1",
+  "alpha": {
+    "threat_level": 0.4,
+    "analysis": 0.2,
+    "cade": 0.4
+  },
+  "beta": {
+    "Internal reference": 0.0625,
+    "Targeting data": 0.0625,
+    "Antivirus detection": 0.0625,
+    "Payload delivery": 0.0625,
+    "Artifacts dropped": 0.0625,
+    "Payload installation": 0.0625,
+    "Persistence mechanism": 0.0625,
+    "Network activity": 0.0625,
+    "Payload type": 0.0625,
+    "Attribution": 0.0625,
+    "External analysis": 0.0625,
+    "Financial fraud": 0.0625,
+    "Support Tool": 0.0625,
+    "Social network": 0.0625,
+    "Person": 0.0625,
+    "Other": 0.0625
+  },
+  "sigma": {
+    "method": "log_std",
+    "version": "proposal-2026-11-24",
+    "zero_rule": "indicator"
+  },
+  "decay_groups": {
+    "hash": {
+      "D": 2,
+      "T": 60
+    },
+    "ip": {
+      "D": 1.5,
+      "T": 7
+    },
+    "domain": {
+      "D": 0.7,
+      "T": 365
+    }
+  },
+  "type_groups": {
+    "hash": [
+      "md5",
+      "sha1",
+      "sha256",
+      "sha512",
+      "ssdeep",
+      "imphash",
+      "tlsh",
+      "filename",
+      "malware-sample",
+      "filename|md5",
+      "filename|sha1",
+      "filename|sha256",
+      "filename|sha512"
+    ],
+    "ip": [
+      "ip-src",
+      "ip-dst",
+      "ip-src|port",
+      "ip-dst|port"
+    ],
+    "domain": [
+      "domain",
+      "hostname",
+      "domain|ip"
+    ]
+  },
+  "scoring_to_ids_only": true,
+  "aggregation": "max-observation",
+  "normalization_scopes": {
+    "cade": "events_with_to_ids_observation",
+    "event": "events_with_valid_observation",
+    "attribute": "valid_observations",
+    "source": "valid_observations"
+  },
+  "feed_rank": {
+    "method": "orgc-proxy",
+    "damping": 0.85,
+    "iterations": 50,
+    "dangling": "uniform",
+    "contribution_weight": 50,
+    "pagerank_weight": 50
+  },
+  "spotis": {
+    "weights": {
+      "source": 0.3333333333333333,
+      "event": 0.3333333333333333,
+      "attribute": 0.3333333333333334
+    },
+    "ideal": 100
+  },
+  "top_n": 20000,
+  "approval": {
+    "approved": false,
+    "approved_by": null,
+    "approved_at": null,
+    "evidence_ref": "docs/sigma-estimator-evaluation.md"
+  }
+}

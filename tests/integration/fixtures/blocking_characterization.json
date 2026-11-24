@@ -1,0 +1,136 @@
+{
+  "decisions": [
+    {
+      "as_of_matches": true,
+      "attribute": "failed-domain",
+      "block": false,
+      "expires_after_seconds": 172800.0,
+      "reason": "indeterminate",
+      "source_instance_id": "failed"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "failed-url",
+      "block": false,
+      "expires_after_seconds": 172800.0,
+      "reason": "indeterminate",
+      "source_instance_id": "failed"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "analysis",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "analysis",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "eligible-domain",
+      "block": true,
+      "expires_after_seconds": 169200.0,
+      "reason": "eligible",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "eligible-url",
+      "block": true,
+      "expires_after_seconds": 169200.0,
+      "reason": "eligible",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "expired",
+      "block": false,
+      "expires_after_seconds": -3024000.0,
+      "reason": "expired",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "future",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "indeterminate",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "rejected",
+      "block": false,
+      "expires_after_seconds": 0.0,
+      "reason": "rejected",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "removed",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "removed",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "to-ids",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "to_ids",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "type",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "type",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "warning-cidr",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "warninglist",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "warning-hostname",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "warninglist",
+      "source_instance_id": "test"
+    },
+    {
+      "as_of_matches": true,
+      "attribute": "warning-string",
+      "block": false,
+      "expires_after_seconds": 169200.0,
+      "reason": "warninglist",
+      "source_instance_id": "test"
+    }
+  ],
+  "pihole_entries": {
+    "good.example": [
+      {
+        "generation": 2,
+        "kind": "domain",
+        "model": "default"
+      }
+    ],
+    "www.urlgood.example": [
+      {
+        "generation": 2,
+        "kind": "url",
+        "model": "default"
+      }
+    ]
+  },
+  "pihole_hosts": [
+    "good.example",
+    "www.urlgood.example"
+  ]
+}

@@ -1,67 +1,95 @@
-"""Compose one Pi-hole reconciliation cycle using module public readers."""
-from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from uuid import UUID
+"""Lock, transactions and read ports for one Pi-hole cycle (no business rules here)."""
+from contextlib import contextmanager
 
 from sqlalchemy import text
 
-from misp_ioc_scoring.collection.api import active_blocking_values, blocking_generations, unavailable_blocking_sources
-from misp_ioc_scoring.scoring.api import blocking_decision, effective_blocks
+from misp_ioc_scoring.collection.api import (active_blocking_values, source_generations, untrusted_sources,
+                                             warninglist_entries)
+from misp_ioc_scoring.scoring.api import blocking_decision, carioca_scores, current_carioca_run, effective_blocks
 from misp_ioc_scoring.shared.database import transaction
-from ...application.sync_pihole import reconcile
-from ...domain.pihole_hostname import hostname
-from ...domain.pihole_policy import eligible
+
+PIHOLE_LOCK = 874203
 
 
-def sync(engine, client, store, max_age_hours):
-    with transaction(engine) as session:
-        if not session.scalar(text("SELECT pg_try_advisory_xact_lock(874203)")):
-            return
-        store.record_policy(session)
-        with transaction(engine) as snapshot:
-            snapshot.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
-            unavailable = unavailable_blocking_sources(
-                snapshot, datetime.now(timezone.utc), timedelta(hours=max_age_hours))
-            generations = blocking_generations(snapshot)
-            blocks = {(row["source_instance_id"], row["attribute_uuid"]): row
-                      for row in effective_blocks(snapshot)}
-            desired = defaultdict(list)
-            current_hosts = {}
-            for source, attribute, kind, category, value in active_blocking_values(snapshot):
-                host = hostname(kind, value)
-                current_hosts[(source, attribute)] = host
-                row = blocks.get((source, attribute))
-                if not eligible("default", block=row is not None, trusted=source not in unavailable):
-                    continue
-                if host:
-                    desired[host].append({"source": source, "attribute": str(attribute),
-                                          "kind": kind, "category": category, "model": "default",
-                                          "as_of": row["as_of"].isoformat(),
-                                          "rule_version": row["rule_version"],
-                                          "generation": generations[source]})
+class SqlSources:
+    """`SourcesPort` over `collection.api`, inside one transaction."""
 
-        def revalidate(operation, host, evidence):
-            with transaction(engine) as check:
-                if blocking_generations(check) != generations:
-                    return False
-                before = datetime.now(timezone.utc)
-                if operation == "add":
-                    return all(
-                        (row := blocking_decision(check, item["source"], attribute_uuid=UUID(item["attribute"])))
-                        and row["block"] and row["as_of"].isoformat() == item["as_of"]
-                        for item in evidence)
-                if {item["source"] for item in evidence} & unavailable_blocking_sources(
-                    check, before, timedelta(hours=max_age_hours)):
-                    return False
-                for item in evidence:
-                    row = blocking_decision(check, item["source"], attribute_uuid=UUID(item["attribute"]))
-                    if (row is None or row["reason"] in {"stale", "indeterminate"}
-                            or (row["block"] and current_hosts.get((item["source"], UUID(item["attribute"]))) == host)):
-                        return False
-                return True
+    def __init__(self, session):
+        self.session = session
 
+    def untrusted(self, now, max_age):
+        return untrusted_sources(self.session, now, max_age)
+
+    def generations(self):
+        return source_generations(self.session)
+
+    def active_values(self, types):
+        return active_blocking_values(self.session, types)
+
+    def warninglists(self):
+        return warninglist_entries(self.session)
+
+
+class SqlDecisions:
+    """`DecisionsPort` over `scoring.api`, inside one transaction."""
+
+    def __init__(self, session):
+        self.session = session
+
+    def effective_blocks(self):
+        return effective_blocks(self.session)
+
+    def decision(self, source, attribute_uuid):
+        return blocking_decision(self.session, source, attribute_uuid=attribute_uuid)
+
+    def current_carioca_run(self):
+        return current_carioca_run(self.session)
+
+    def carioca_scores(self, run_id, min_score):
+        return list(carioca_scores(self.session, run_id, min_score=min_score))
+
+
+class PiHoleRunner:
+    """Context manager: Pi-hole lock, policy record and a REPEATABLE READ snapshot.
+
+    Yields itself with `decisions` and `sources` ports, or None when another worker
+    holds the lock. `fresh()` opens a new transaction for revalidation.
+    """
+
+    def __init__(self, engine, store):
+        self.engine = engine
+        self.store = store
+        self._lock = None
+        self._snapshot = None
+        self.decisions = self.sources = None
+
+    def __enter__(self):
+        self._lock = transaction(self.engine)
+        session = self._lock.__enter__()
         try:
-            client.validate()
-            reconcile(client, store, desired, unavailable, revalidate)
-        finally:
-            client.close()
+            if not session.scalar(text(f"SELECT pg_try_advisory_xact_lock({PIHOLE_LOCK})")):
+                self._lock.__exit__(None, None, None)
+                self._lock = None
+                return None
+            self.store.record_policy(session)
+            self._snapshot = transaction(self.engine)
+            snapshot = self._snapshot.__enter__()
+            snapshot.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+            self.decisions, self.sources = SqlDecisions(snapshot), SqlSources(snapshot)
+            return self
+        except BaseException as error:
+            self.__exit__(type(error), error, error.__traceback__)
+            raise
+
+    @contextmanager
+    def fresh(self):
+        with transaction(self.engine) as check:
+            yield SqlDecisions(check), SqlSources(check)
+
+    def __exit__(self, exc_type, exc, tb):
+        for name in ("_snapshot", "_lock"):
+            context = getattr(self, name)
+            setattr(self, name, None)
+            if context is not None:
+                context.__exit__(exc_type, exc, tb)
+        return False

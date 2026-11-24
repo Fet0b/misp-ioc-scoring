@@ -42,6 +42,7 @@ class EventPayload(Payload):
     threat_level_id: str
     analysis: str
     distribution: str
+    sharing_group_id: str | None = None
     published: bool
     Orgc: dict = Field(default_factory=dict)
     Attribute: list[AttributePayload] = Field(default_factory=list)
@@ -51,6 +52,11 @@ class EventPayload(Payload):
     @classmethod
     def string_enum(cls, value):
         return str(value)
+
+    @field_validator('sharing_group_id', mode='before')
+    @classmethod
+    def optional_string(cls, value):
+        return str(value) if value not in (None, '', '0', 0) else None
 
     @field_validator('date', 'timestamp', mode='before')
     @classmethod
@@ -77,5 +83,5 @@ class EventPayload(Payload):
                 published=self.published, sharing_group_id=attribute.sharing_group_id,
                 tags=tuple(tag['name'] for tag in attribute.Tag if 'name' in tag),
                 removed_at=collected_at if attribute.deleted else None,
-                attribute_id=attribute.id,
+                attribute_id=attribute.id, event_sharing_group_id=self.sharing_group_id,
             )

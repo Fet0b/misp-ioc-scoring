@@ -1,0 +1,46 @@
+# Isolated end-to-end environment: a local MISP (collection source and outbound sync),
+# a MISP peer reached by native sync push, and a Pi-hole v6. Test-only credentials.
+# Used together with the project compose.yaml: see tests/e2e/conftest.py.
+x-misp-env: &misp-env
+  MYSQL_PASSWORD: e2e-only
+  MYSQL_ROOT_PASSWORD: e2e-only
+  DISABLE_SSL_REDIRECT: "true"
+  ADMIN_EMAIL: admin@e2e.invalid
+  ADMIN_PASSWORD: e2e-only-Passw0rd!
+
+services:
+  misp-local-db:
+    image: mariadb:10.11
+    environment: {MYSQL_DATABASE: misp, MYSQL_USER: misp, MYSQL_PASSWORD: e2e-only, MYSQL_ROOT_PASSWORD: e2e-only}
+  misp-local-redis:
+    image: valkey/valkey:7.2
+  misp-local:
+    image: ghcr.io/misp/misp-docker/misp-core:latest
+    environment:
+      <<: *misp-env
+      BASE_URL: https://misp-local
+      MYSQL_HOST: misp-local-db
+      REDIS_HOST: misp-local-redis
+      ADMIN_KEY: ${E2E_LOCAL_KEY:-e2elocal000000000000000000000000000000000}
+    depends_on: [misp-local-db, misp-local-redis]
+
+  misp-peer-db:
+    image: mariadb:10.11
+    environment: {MYSQL_DATABASE: misp, MYSQL_USER: misp, MYSQL_PASSWORD: e2e-only, MYSQL_ROOT_PASSWORD: e2e-only}
+  misp-peer-redis:
+    image: valkey/valkey:7.2
+  misp-peer:
+    image: ghcr.io/misp/misp-docker/misp-core:latest
+    environment:
+      <<: *misp-env
+      BASE_URL: https://misp-peer
+      MYSQL_HOST: misp-peer-db
+      REDIS_HOST: misp-peer-redis
+      ADMIN_KEY: ${E2E_PEER_KEY:-e2epeer0000000000000000000000000000000000}
+    depends_on: [misp-peer-db, misp-peer-redis]
+
+  pihole:
+    image: pihole/pihole:2025.08.0
+    environment:
+      FTLCONF_webserver_api_password: e2e-only
+      FTLCONF_dns_listeningMode: all

@@ -99,7 +99,7 @@ description: "Tarefas para bloqueio simples e compartilhamento Pi-hole"
 
 - [X] T038 [P] Atualizar `README.md` com critérios, decaimento, consulta segura, limites de coleta, flags, seleção de score e alcance do bloqueio de hostname derivado de URL; explicar pausa de sharing MISP e necessidade de CARIOCA implementado.
 - [X] T039 Atualizar `specs/002-bloqueio-simples/quickstart.md` e `specs/002-bloqueio-simples/contracts/sender.md` com comportamento final, nomes de flags, consulta e passos executáveis; manter o contrato de consulta alinhado ao comportamento do Pi-hole.
-- [ ] T040 Executar testes aplicáveis em `tests/unit/`, `tests/contract/`, `tests/integration/` e `tests/architecture/`, conferir `docker compose config` e cenário de Pi-hole isolado; registrar em `specs/002-bloqueio-simples/quickstart.md` serviços ou verificações indisponíveis.
+- [X] T040 Executar testes aplicáveis em `tests/unit/`, `tests/contract/`, `tests/integration/` e `tests/architecture/`, conferir `docker compose config` e cenário de Pi-hole isolado; registrar em `specs/002-bloqueio-simples/quickstart.md` serviços ou verificações indisponíveis.
 - [X] T041 Revisar `src/misp_ioc_scoring/`, `compose.yaml` e `migrations/versions/` quanto a segredos, TLS, fronteiras de módulos, acesso mínimo, dados legados, bloqueios obsoletos, propriedade e remoção de entradas; corrigir problemas e repetir os testes afetados.
 
 ## Dependências e ordem

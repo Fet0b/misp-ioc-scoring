@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -9,16 +11,15 @@ class Result:
     def __init__(self, rows):
         self.rows = rows
 
-    def mappings(self):
-        return self
-
     def fetchmany(self, size):
         return self.rows[:size]
 
 
 @pytest.mark.parametrize("field,identifier", [("attribute_uuid", uuid4()), ("attribute_id", 42)])
 def test_sender_queries_effective_view_with_origin_and_bound_identifier(field, identifier):
-    row = dict(block=False, reason="indeterminate", attribute_id=None)
+    now = datetime(2026, 11, 24, tzinfo=timezone.utc)
+    row = SimpleNamespace(source_instance_id="peer", attribute_uuid=uuid4(), attribute_id=None, block=False,
+                          reason="indeterminate", as_of=now, expires_at=now, rule_version="default-v1")
 
     class Session:
         def execute(self, query, parameters):
@@ -27,7 +28,8 @@ def test_sender_queries_effective_view_with_origin_and_bound_identifier(field, i
             assert parameters == {"source": "peer", "identifier": identifier}
             return Result([row])
 
-    assert blocking_decision(Session(), "peer", **{field: identifier}) == row
+    decision = blocking_decision(Session(), "peer", **{field: identifier})
+    assert (decision.block, decision.reason, decision.attribute_id) == (False, "indeterminate", None)
 
 
 def test_unknown_and_ambiguous_local_id():
@@ -40,4 +42,4 @@ def test_unknown_and_ambiguous_local_id():
 
     assert blocking_decision(Session([]), "peer", attribute_id=42) is None
     with pytest.raises(ValueError, match="Ambiguous"):
-        blocking_decision(Session([{}, {}]), "peer", attribute_id=42)
+        blocking_decision(Session([object(), object()]), "peer", attribute_id=42)

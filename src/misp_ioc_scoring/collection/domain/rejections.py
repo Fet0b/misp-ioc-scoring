@@ -14,3 +14,4 @@ class IndicatorRejection:
     reason: Literal['invalid', 'unsupported']
     rejected_at: datetime
     detail: str = 'indicator_rejected'
+    attribute_id: int | None = None

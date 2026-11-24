@@ -1,18 +1,31 @@
 """Composition root for scoring and defensive DNS sharing."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import partial
+from uuid import uuid4
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import run
+from misp_ioc_scoring.scoring.api import CariocaConfigurationError, ScoreModel, load_carioca_configuration
+from misp_ioc_scoring.scoring.application.score_population import run_carioca
+from misp_ioc_scoring.scoring.application.simple_blocking import run_blocking
+from misp_ioc_scoring.scoring.infrastructure.persistence.carioca import CariocaRunner
+from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import BlockingRunner
 from misp_ioc_scoring.scoring.infrastructure.scheduling.scheduler import add_scoring_job
 from misp_ioc_scoring.sharing.adapters.pihole import PiHole
 from misp_ioc_scoring.sharing.infrastructure.persistence.pihole import Store
-from misp_ioc_scoring.sharing.infrastructure.scheduling.scheduler import sync
+from misp_ioc_scoring.shared.misp.client import MispClient
+from misp_ioc_scoring.sharing.adapters.synchronization import MispSynchronization
+from misp_ioc_scoring.sharing.application.share_eligible import share_eligible
+from misp_ioc_scoring.sharing.application.sharing_status import report_sharing
+from misp_ioc_scoring.sharing.application.sync_pihole import PiHolePolicy, plan_and_reconcile
+from misp_ioc_scoring.sharing.infrastructure.peer_configuration import load_sharing_policy
+from misp_ioc_scoring.sharing.infrastructure.persistence.misp import SqlSharingStore
+from misp_ioc_scoring.sharing.infrastructure.scheduling.misp_sharing import MispSharingRunner
+from misp_ioc_scoring.sharing.infrastructure.scheduling.scheduler import PiHoleRunner
 from misp_ioc_scoring.shared.configuration import enabled, load_configuration, resolve_secret
 from misp_ioc_scoring.shared.database import engine_from_configuration
-from misp_ioc_scoring.shared.errors import OperationalError
+from misp_ioc_scoring.shared.errors import ConfigurationError, OperationalError
 from misp_ioc_scoring.shared.logging import configure_logging
 
 log = logging.getLogger(__name__)
@@ -25,27 +38,96 @@ def safe_job(name, job):
         log.error("%s_job_failed", name)
 
 
+def run_simple_blocking(engine, max_age_hours):
+    """Simple blocking job: lock, read `as_of` once, evaluate and publish."""
+    with BlockingRunner(engine, uuid4) as store:
+        if store is None:
+            return None
+        as_of = datetime.now(timezone.utc)
+        return run_blocking(as_of, store.snapshot, timedelta(hours=max_age_hours), store)
+
+
+def run_carioca_scoring(engine, configuration):
+    """CARIOCA job: lock, read `as_of` once, recalculate the whole population."""
+    with CariocaRunner(engine, uuid4) as store:
+        if store is None:
+            return None
+        as_of = datetime.now(timezone.utc)
+        return run_carioca(as_of, store.snapshot, configuration, store, candidates=store.candidates)
+
+
+def sync_pihole(engine, client, store, max_age_hours):
+    """Pi-hole job: lock, read `as_of` once, plan and reconcile."""
+    with PiHoleRunner(engine, store) as runner:
+        if runner is None:
+            return
+        as_of = datetime.now(timezone.utc)
+        policy = PiHolePolicy(ScoreModel(store.model), store.min_score, timedelta(hours=max_age_hours))
+        plan_and_reconcile(as_of, runner.decisions, runner.sources, client, store, policy,
+                           fresh=runner.fresh, clock=lambda: datetime.now(timezone.utc))
+
+
+def share_misp(engine, misp, store, policy, max_age_hours):
+    """MISP peers job: lock, read `as_of` once, share eligible IOCs."""
+    with MispSharingRunner(engine) as reader:
+        if reader is None:
+            return None
+        result = share_eligible(datetime.now(timezone.utc), reader, misp, store, policy,
+                                max_age=timedelta(hours=max_age_hours))
+    report_sharing(result)
+    return result
+
+
+def misp_synchronization(config, policy):
+    local = MispClient(policy.local.base_url, policy.local.credential_secret_ref,
+                       config.misp_request_timeout_seconds, allow_http=policy.local.allow_http)
+    return MispSynchronization(local, lambda peer: MispClient(
+        peer.base_url, peer.credential_secret_ref, config.misp_request_timeout_seconds,
+        allow_http=peer.allow_http))
+
+
+def approved_carioca_configuration(path):
+    try:
+        return load_carioca_configuration(path).require_approved()
+    except CariocaConfigurationError as error:
+        raise ConfigurationError(error.code) from None
+
+
 def main():
     flags = [enabled(key) for key in ("SCORING_SIMPLE_ENABLED", "SCORING_CARIOCA_ENABLED",
                                     "SHARING_PIHOLE_ENABLED", "SHARING_MISP_ENABLED")]
     if not any(flags):
         return
     config = load_configuration("scoring-sharing")
+    carioca = approved_carioca_configuration(config.carioca_config_path) if config.carioca_scoring_enabled else None
     engine = engine_from_configuration(config)
     try:
         scheduler = BlockingScheduler(timezone="UTC")
         if config.simple_scoring_enabled:
-            score = partial(safe_job, "scoring", partial(run, engine, config.score_max_age_hours))
+            score = partial(safe_job, "scoring", partial(run_simple_blocking, engine, config.score_max_age_hours))
             add_scoring_job(scheduler, score, config.scoring_daily_cron)
+        if carioca is not None:
+            daily = partial(safe_job, "carioca", partial(run_carioca_scoring, engine, carioca))
+            add_scoring_job(scheduler, daily, config.scoring_daily_cron, "carioca-scoring")
         if config.pihole_enabled:
             client = PiHole(config.pihole_url, resolve_secret(config.pihole_password_secret_ref).get_secret_value(),
                             allow_http=enabled("PIHOLE_ALLOW_HTTP"))
             store = Store(engine, config.pihole_url, config.pihole_interval_seconds,
-                          config.pihole_password_secret_ref)
-            share = partial(safe_job, "pihole", partial(sync, engine, client, store, config.score_max_age_hours))
+                          config.pihole_password_secret_ref, ScoreModel(config.pihole_score_model),
+                          config.pihole_carioca_min_score)
+            share = partial(safe_job, "pihole", partial(sync_pihole, engine, client, store, config.score_max_age_hours))
             scheduler.add_job(share, "interval", seconds=config.pihole_interval_seconds,
                               id="pihole", max_instances=1, coalesce=True,
                               next_run_time=datetime.now(timezone.utc))
+        if config.misp_sharing_enabled:
+            policy = load_sharing_policy(config)
+            store = SqlSharingStore(engine, policy)
+            store.record_policy(datetime.now(timezone.utc))
+            misp = misp_synchronization(config, policy)
+            share = partial(safe_job, "misp_sharing",
+                            partial(share_misp, engine, misp, store, policy, config.score_max_age_hours))
+            scheduler.add_job(share, "interval", seconds=config.sharing_interval_seconds, id="misp-sharing",
+                              max_instances=1, coalesce=True, next_run_time=datetime.now(timezone.utc))
         scheduler.start()
     finally:
         engine.dispose()

@@ -103,3 +103,13 @@ def test_incomplete_enabled_warninglist_is_not_an_empty_list():
 
     with pytest.raises(OperationalError, match="^misp_warninglists_invalid$"):
         list(CollectionSource(IncompleteWarningClient(), "test", False).warninglists())
+
+
+def test_inherited_distribution_keeps_event_sharing_group():
+    payload = event()
+    payload.update(distribution='4', sharing_group_id='7')
+    payload['Attribute'][0].update(distribution='5')
+    source = CollectionSource(Client([[{'Event': payload}], []]), 'test', True, page_size=1)
+    observation = list(source.observations(datetime(2026, 11, 10, tzinfo=timezone.utc)))[0]
+    assert observation.event_sharing_group_id == '7'
+    assert observation.distribution == '5' and observation.event_distribution == '4'

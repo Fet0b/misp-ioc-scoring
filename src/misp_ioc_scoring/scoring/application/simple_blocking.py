@@ -1,42 +1,77 @@
 """Build an explainable decision per observation and known rejection."""
 from collections import defaultdict
 from datetime import timedelta
+from typing import Protocol
+from uuid import uuid4
 
+from misp_ioc_scoring.collection.api import warninglist_index
+
+from ..domain.blocking import BlockingDecision, BlockingEvidence, BlockingReason
 from ..domain.simple_blocking import decision
 
 
-def evaluate(snapshot, as_of, max_age, membership):
-    endpoints, observations, warnings, rejections = snapshot
+def evaluate(snapshot, as_of, max_age):
+    """Yield one decision per known observation and rejection of a `CollectionSnapshot`."""
     by_source = defaultdict(list)
-    for item in warnings:
+    for item in snapshot.warninglists:
         by_source[item.source_instance_id].append(item)
-    rejected = {(item.source_instance_id, item.attribute_uuid): item for item in rejections}
+    indexes = {source: warninglist_index(entries, "strict") for source, entries in by_source.items()}
+    empty = warninglist_index((), "strict")
+    rejected = {(item.source_instance_id, item.attribute_uuid): item for item in snapshot.rejections}
 
-    for observation, value in observations:
+    for observation in snapshot.observations:
         key = (observation.source_instance_id, observation.attribute_uuid)
         rejection = rejected.pop(key, None)
-        source = endpoints[key[0]]
+        source = snapshot.sources[key[0]]
         timestamp = observation.source_modified_at
         expires_at = as_of + max_age
         warning = None
-        if source.generation and source.status == "completed" and source.last_success_at:
-            expires_at = min(expires_at, source.last_success_at + max_age)
-            if as_of < expires_at:
-                warning = membership(by_source[key[0]], observation.misp_type, value)
-        reason = "rejected" if rejection else decision(
+        valid_until = source.valid_until(max_age)
+        if valid_until is not None:
+            expires_at = min(expires_at, valid_until)
+            if source.trusted(as_of, max_age):
+                warning = indexes.get(key[0], empty).match(
+                    observation.misp_type, observation.normalized_value, "strict")
+        reason = BlockingReason.REJECTED if rejection else decision(
             kind=observation.misp_type, to_ids=observation.to_ids,
             analysis=observation.event_analysis, removed=observation.removed_at is not None,
             warning=warning, timestamp=timestamp, as_of=as_of)
-        yield dict(source_instance_id=key[0], attribute_uuid=key[1],
-                   attribute_id=rejection.attribute_id if rejection else observation.attribute_id,
-                   generation=source.generation, block=reason == "eligible", reason=reason, as_of=as_of,
-                   expires_at=min(expires_at, timestamp + timedelta(days=365)) if timestamp else expires_at,
-                   evidence=dict(timestamp=timestamp.isoformat() if timestamp else None,
-                                 kind=observation.misp_type, warning=warning,
-                                 max_age_hours=max_age.total_seconds() / 3600,
-                                 to_ids=observation.to_ids, analysis=observation.event_analysis))
+        yield BlockingDecision(
+            source_instance_id=key[0], attribute_uuid=key[1],
+            attribute_id=rejection.attribute_id if rejection else observation.attribute_id,
+            block=reason == BlockingReason.ELIGIBLE, reason=reason, as_of=as_of,
+            expires_at=min(expires_at, timestamp + timedelta(days=365)) if timestamp else expires_at,
+            generation=source.generation,
+            evidence=BlockingEvidence(kind=observation.misp_type, max_age_hours=max_age.total_seconds() / 3600,
+                                      timestamp=timestamp, warning=warning, to_ids=observation.to_ids,
+                                      analysis=observation.event_analysis))
     for key, item in rejected.items():
-        yield dict(source_instance_id=key[0], attribute_uuid=key[1], attribute_id=item.attribute_id,
-                   generation=endpoints[key[0]].generation, block=False, reason="rejected",
-                   as_of=as_of, expires_at=as_of, evidence=dict(kind=item.misp_type,
-                                                  max_age_hours=max_age.total_seconds() / 3600))
+        yield BlockingDecision(
+            source_instance_id=key[0], attribute_uuid=key[1], attribute_id=item.attribute_id,
+            block=False, reason=BlockingReason.REJECTED, as_of=as_of, expires_at=as_of,
+            generation=snapshot.sources[key[0]].generation,
+            evidence=BlockingEvidence(kind=item.misp_type, max_age_hours=max_age.total_seconds() / 3600,
+                                      rejected=True))
+
+
+class BlockingStore(Protocol):
+    """Port: persists one blocking run atomically."""
+    def start(self, run_id, as_of): ...
+    def upsert(self, decisions): ...
+    def finish(self, run_id): ...
+
+
+def run_blocking(as_of, snapshot, max_age, store: BlockingStore, *, batch_size=1000):
+    """Evaluate the whole snapshot at one `as_of` and publish it as one run."""
+    run_id = uuid4()
+    store.start(run_id, as_of)
+    batch = []
+    for item in evaluate(snapshot, as_of, max_age):
+        batch.append(item)
+        if len(batch) == batch_size:
+            store.upsert(batch)
+            batch = []
+    if batch:
+        store.upsert(batch)
+    store.finish(run_id)
+    return run_id

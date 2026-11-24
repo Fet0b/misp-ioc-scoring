@@ -45,7 +45,7 @@ def test_validates_ftl_version_and_exact_deny_contract():
     client = PiHole("https://pihole.example", "application-password")
     client.opener = Transport()
     client.validate()
-    assert client.lookup("block.example")["groups"] == [2]
+    assert client.lookup("block.example").groups == (2,)
     assert not responses
 
 

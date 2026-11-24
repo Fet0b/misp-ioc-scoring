@@ -118,20 +118,55 @@ Não usar o cluster de produção para os testes.
 
 ## Retomada de US2–US4 (revisão 2026-11-24)
 
-Estado: coleta, bloqueio simples e Pi-hole implementados; CARIOCA, candidatos e peers
-MISP em implementação. Decisões em [plan.md](./plan.md#revisão-2026-11-24-retomada-de-us2-us4).
+Estado: coleta, bloqueio simples, Pi-hole, CARIOCA, candidatos e peers MISP
+implementados. A ativação do CARIOCA espera a aprovação de σ, e os peers MISP esperam a
+validação contra um MISP isolado. Decisões em [plan.md](./plan.md#revisão-2026-11-24-retomada-de-us2-us4).
 
-### Testes hoje
+### Comandos finais
 
 ```bash
-uv run --extra dev pytest -q tests/unit tests/contract tests/architecture
-TEST_DATABASE_URL=postgresql+psycopg://...@localhost/misp_test uv run --extra dev pytest -q tests/integration
+# Suíte completa (integração exige PostgreSQL descartável com banco terminado em _test)
+TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55432/misp_test uv run --extra dev pytest -q
+uv run --extra dev lint-imports
+# Benchmark SC-011 (opcional, lento)
+RUN_BENCHMARK=true TEST_DATABASE_URL=... uv run --extra dev pytest -q -s tests/benchmark
+# End-to-end com MISP local, MISP peer e Pi-hole isolados (exige Docker)
+E2E_COMPOSE=true uv run --extra dev pytest -q tests/e2e
+# Serviços
+docker compose config
+docker compose up -d --build database migrate collector
+docker compose --profile scoring up -d --build scoring-sharing
 ```
 
-Até a correção de `pythonpath` no `pyproject.toml`, prefixar com `PYTHONPATH=.`. Sem
-`TEST_DATABASE_URL`, os testes de integração são pulados.
+- **Coleta**: como na seção "MVP de coleta".
+- **Scoring CARIOCA**: `SCORING_CARIOCA_ENABLED=true`, `SCORING_DAILY_CRON` e
+  `CARIOCA_CONFIG_PATH` (o Compose monta `./config` somente leitura).
+- **Aprovação da configuração**: depois da avaliação de σ
+  (`docs/sigma-estimator-evaluation.md`), preencher `approval` em
+  `config/carioca-orgc-proxy-v3.yaml` e gravar
+  `tests/unit/fixtures/carioca_reference_approved.json`. A partir daí,
+  `tests/unit/test_carioca_reference_approved.py` deixa de ser pulado.
+- **Pi-hole `carioca`**: `PIHOLE_SCORE_MODEL=carioca` e `PIHOLE_CARIOCA_MIN_SCORE`.
+- **Peers MISP**: `SHARING_MISP_ENABLED=true`, `MISP_PEERS_SECRET_REF` (JSON com `local`
+  e `peers`, ver README), `SHARING_INTERVAL_SECONDS`, `SHARING_RETRY_ATTEMPTS`,
+  `SHARING_RETRY_BACKOFF_SECONDS` e `MISP_REQUEST_TIMEOUT_SECONDS`.
+- **Peer de sync isolado**: `tests/e2e/config/compose.e2e.yaml`. O servidor de sync
+  local → peer e as regras de push são configurados no MISP local.
 
-### Cenários a validar quando US2 estiver pronta
+### Verificação de 2026-11-24 (T092)
+
+Ambiente sem Docker, com PostgreSQL 16.2 local descartável.
+
+| Verificação | Resultado |
+|---|---|
+| `uv run --extra dev pytest -q` com `TEST_DATABASE_URL` | 265 passaram, 4 pulados: benchmark (opcional), e2e (sem Docker) e nível 2 da SC-015 (configuração ainda não aprovada) |
+| `uv run --extra dev lint-imports` | 19 contratos respeitados |
+| Benchmark com `RUN_BENCHMARK=true` | 269.787 IOCs: 10,3 s em memória e 42,6 s com gravação |
+| `docker compose config` e `docker compose up --build` | **Não executados**: Docker indisponível no ambiente |
+| e2e com MISP, peer de sync e Pi-hole isolados | **Não executado**: sem Docker e sem instâncias de teste |
+| Tabela de fontes do Notion §4 | **Não conferida**: exige `BENCHMARK_DATABASE_URL` com cópia do MISP de estudos |
+
+### Cenários de validação da US2–US4
 
 1. **Casos de referência, nível 1 (fórmulas)**: com σ dado como entrada, os testes
    unitários reproduzem `hotels-stays55501.com` (CADE 6,5218; CADE' 19,544; E' 60,532;

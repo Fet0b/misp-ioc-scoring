@@ -1,19 +1,8 @@
 import pytest
 
-from misp_ioc_scoring.sharing.domain.pihole_hostname import hostname
 from misp_ioc_scoring.sharing.domain.pihole_policy import eligible
 from misp_ioc_scoring.sharing.application.sync_pihole import reconcile
-
-
-@pytest.mark.parametrize("kind,value,expected", [
-    ("url", "https://Sub.Example.org:8443/path?token=x", "sub.example.org"),
-    ("domain", "exämple.org.", "xn--exmple-cua.org"),
-    ("url", "https://127.0.0.1/path", None),
-    ("url", "https://[bad", None),
-    ("link", "https://example.org", None),
-])
-def test_dns_hostname(kind, value, expected):
-    assert hostname(kind, value) == expected
+from misp_ioc_scoring.sharing.domain.pihole_entries import ManagedEntry, RemoteEntry
 
 
 def test_score_cutoff():
@@ -29,7 +18,8 @@ class FakePiHole:
         self.timeout = True
 
     def lookup(self, host):
-        return self.rows.get(host)
+        row = self.rows.get(host)
+        return RemoteEntry.from_payload(row) if row is not None else None
 
     def add(self, host, marker):
         self.rows[host] = {"id": 2, "comment": marker, "groups": [0], "enabled": True}
@@ -49,7 +39,7 @@ class MemoryStore:
         return self.rows.copy()
 
     def save(self, host, marker, remote_id, status, evidence):
-        self.rows[host] = dict(marker=marker, remote_id=remote_id, status=status, evidence=evidence)
+        self.rows[host] = ManagedEntry(host, marker, remote_id, status, evidence)
 
     def attempt(self, host, operation, status):
         pass
@@ -61,9 +51,9 @@ def test_reconcile_timeout_and_preserve_unavailable_source_and_manual_entries():
     source = {"source": "peer-A"}
     desired = {host: [source], "manual.example": [source]}
     reconcile(client, store, desired, set())
-    assert store.rows[host]["status"] == "pending"
+    assert store.rows[host].status == "pending"
     reconcile(client, store, desired, set())
-    assert store.rows[host]["status"] == "confirmed"
+    assert store.rows[host].status == "confirmed"
     reconcile(client, store, {}, {"peer-A"})
     assert host in client.rows
     reconcile(client, store, {}, set())
@@ -78,4 +68,4 @@ def test_remote_marker_change_prevents_removal():
     client.rows[host]["comment"] = "manual change"
     reconcile(client, store, {}, set())
     assert host in client.rows
-    assert store.rows[host]["status"] == "unverified"
+    assert store.rows[host].status == "unverified"

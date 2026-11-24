@@ -1,26 +1,29 @@
 """Eligibility of one source observation at a fixed instant."""
+from .blocking import BlockingReason as Reason
+from .decay import DOMAIN
+
+# URL shares the domain decay group in simple blocking (feature 002).
+BLOCKABLE_TYPES = frozenset({"domain", "url"})
+
 
 def freshness(timestamp, as_of):
     if timestamp is None or timestamp.utcoffset() is None or as_of.utcoffset() is None:
         return None
-    days = (as_of - timestamp).total_seconds() / 86400
-    if days < 0:
-        return None
-    return 100 * (1 - (days / 365) ** (1 / 0.7)) if days < 365 else 0
+    return DOMAIN.freshness((as_of - timestamp).total_seconds() / 86400)
 
 
 def decision(*, kind, to_ids, analysis, removed, warning, timestamp, as_of):
     if removed:
-        return "removed"
-    if kind not in {"domain", "url"}:
-        return "type"
+        return Reason.REMOVED
+    if kind not in BLOCKABLE_TYPES:
+        return Reason.TYPE
     if to_ids is not True:
-        return "to_ids"
+        return Reason.TO_IDS
     if str(analysis) != "2":
-        return "analysis"
+        return Reason.ANALYSIS
     age_score = freshness(timestamp, as_of)
     if warning is None or age_score is None:
-        return "indeterminate"
+        return Reason.INDETERMINATE
     if warning:
-        return "warninglist"
-    return "eligible" if age_score > 0 else "expired"
+        return Reason.WARNINGLIST
+    return Reason.ELIGIBLE if age_score > 0 else Reason.EXPIRED

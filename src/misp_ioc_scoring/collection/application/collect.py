@@ -4,8 +4,12 @@ from typing import Protocol
 import time
 from misp_ioc_scoring.shared.errors import OperationalError
 
+from .status import report_status
+
 
 class CollectionRepository(Protocol):
+    source_instance_id: str
+
     def checkpoint(self): ...
     def apply(self, observations, active_uuids, warninglists, collected_at): ...
     def failed(self, collected_at, code): ...
@@ -28,12 +32,14 @@ def collect(source: Source, repository: CollectionRepository, collected_at, *,
             snapshot = list(source.observations(collected_at)) if since else observations
             by_uuid = {o.attribute_uuid: o for o in snapshot}
             warninglists = list(source.warninglists())
-            repository.apply(list(by_uuid.values()), {o.attribute_uuid for o in snapshot},
-                             warninglists, collected_at)
-            return
+            counts = repository.apply(list(by_uuid.values()), {o.attribute_uuid for o in snapshot},
+                                      warninglists, collected_at)
+            report_status(repository.source_instance_id, 'completed', counts=counts or {})
+            return counts
         except Exception as error:
             code = error.code if isinstance(error, OperationalError) else 'collection_failed'
             if attempt + 1 == attempts:
                 repository.failed(collected_at, code)
+                report_status(repository.source_instance_id, 'failed', code)
                 raise OperationalError(code) from None
             sleep(backoff_seconds * 2 ** attempt)

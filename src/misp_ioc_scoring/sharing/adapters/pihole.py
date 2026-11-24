@@ -4,6 +4,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from misp_ioc_scoring.sharing.domain.pihole_entries import RemoteEntry
+
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -81,7 +83,8 @@ class PiHole:
             if error.status == 404:
                 return None
             raise
-        return next((row for row in rows if row["domain"] == host), None)
+        row = next((row for row in rows if row["domain"] == host), None)
+        return RemoteEntry.from_payload(row) if row is not None else None
 
     def add(self, host, marker):
         self.call("POST", "/domains/deny/exact", {"domain": host, "comment": marker, "groups": [0], "enabled": True})
