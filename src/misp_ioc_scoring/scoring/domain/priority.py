@@ -20,4 +20,4 @@ def spotis(scores: dict, weights: dict, ideal: float = 100.0, bounds=(0.0, 100.0
     """SPOTIS against the ideal point; with ideal 100, bounds 0–100 it is the weighted mean."""
     low, high = bounds
     distance = sum(weights[key] * abs(scores[key] - ideal) / (high - low) for key in weights)
-    return (1 - distance) * 100
+    return min(100.0, max(0.0, (1 - distance) * 100))

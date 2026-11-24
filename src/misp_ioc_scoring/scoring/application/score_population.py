@@ -91,7 +91,8 @@ def calculate(as_of, snapshot, configuration, categories=CATEGORIES):
             event_raw=event_raw[event], event_norm=event_norm[event], source_value=source_raw[key],
             source_norm=source_norm[key],
             priority=spotis(components, configuration.spotis_weights, configuration.spotis_ideal),
-            minmax_degenerate=degenerate))
+            minmax_degenerate=degenerate,
+            event_categories=tuple(c for c, n in events[event].items() if n)))
 
     iocs = {o.ioc_id: o for o in active}
     results = [ScoreResult(ioc_id=e.ioc_id, type=iocs[e.ioc_id].misp_type,

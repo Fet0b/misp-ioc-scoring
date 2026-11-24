@@ -82,7 +82,7 @@ def scoring_env():
         'DATABASE_URL': 'postgresql+psycopg://scoring_sharing@database/db',
         'SCORING_DAILY_CRON': '0 3 * * *', 'SHARING_INTERVAL_SECONDS': '300',
         'SHARING_RETRY_ATTEMPTS': '3', 'SHARING_RETRY_BACKOFF_SECONDS': '5',
-        'CARIOCA_TOP_N': '100', 'CARIOCA_CONFIG_PATH': '/config/carioca.yaml',
+        'CARIOCA_CONFIG_PATH': '/config/carioca.yaml',
         'MISP_REQUEST_TIMEOUT_SECONDS': '60',
         'MISP_PEERS_SECRET_REF': 'file:/run/secrets/peers',
         'PEER_MINIMUM_SCORES_SECRET_REF': 'file:/run/secrets/minimums',
@@ -115,3 +115,18 @@ def test_export_physical_row_limit_is_accepted():
         'DATABASE_URL': 'postgresql+psycopg://observer@database/db',
         'EXPORT_OUTPUT_DIR': '/output', 'EXPORT_MAX_ROWS_PER_SHEET': '1048575',
     }).export_max_rows_per_sheet == 1048575
+
+
+def test_carioca_flag_requires_readable_configuration_and_cron(tmp_path):
+    env = {"DATABASE_URL": scoring_env()["DATABASE_URL"], "SCORING_CARIOCA_ENABLED": "true"}
+    with pytest.raises(ConfigurationError, match="CARIOCA_CONFIG_PATH"):
+        load_configuration("scoring-sharing", env)
+    with pytest.raises(ConfigurationError, match="CARIOCA_CONFIG_PATH"):
+        load_configuration("scoring-sharing", env | {"CARIOCA_CONFIG_PATH": str(tmp_path / "missing.yaml")})
+    path = tmp_path / "carioca.yaml"
+    path.write_text("{}")
+    with pytest.raises(ConfigurationError, match="SCORING_DAILY_CRON"):
+        load_configuration("scoring-sharing", env | {"CARIOCA_CONFIG_PATH": str(path)})
+    config = load_configuration("scoring-sharing", env | {"CARIOCA_CONFIG_PATH": str(path),
+                                                          "SCORING_DAILY_CRON": "0 3 * * *"})
+    assert config.carioca_scoring_enabled and config.carioca_config_path == str(path)

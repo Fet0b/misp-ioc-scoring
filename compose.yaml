@@ -74,8 +74,10 @@ services:
       PIHOLE_INTERVAL_SECONDS: ${PIHOLE_INTERVAL_SECONDS:-}
       PIHOLE_ALLOW_HTTP: ${PIHOLE_ALLOW_HTTP:-false}
       SCORE_MAX_AGE_HOURS: ${SCORE_MAX_AGE_HOURS:-48}
+      CARIOCA_CONFIG_PATH: ${CARIOCA_CONFIG_PATH:-/app/config/carioca-orgc-proxy-v3.yaml}
     volumes:
       - ${PIHOLE_CREDENTIALS_DIR:-./secrets/pihole}:/run/pihole:ro
+      - ./config:/app/config:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

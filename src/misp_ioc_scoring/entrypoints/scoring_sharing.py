@@ -6,7 +6,10 @@ from uuid import uuid4
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
+from misp_ioc_scoring.scoring.api import CariocaConfigurationError, load_carioca_configuration
+from misp_ioc_scoring.scoring.application.score_population import run_carioca
 from misp_ioc_scoring.scoring.application.simple_blocking import run_blocking
+from misp_ioc_scoring.scoring.infrastructure.persistence.carioca import CariocaRunner
 from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import BlockingRunner
 from misp_ioc_scoring.scoring.infrastructure.scheduling.scheduler import add_scoring_job
 from misp_ioc_scoring.sharing.adapters.pihole import PiHole
@@ -14,7 +17,7 @@ from misp_ioc_scoring.sharing.infrastructure.persistence.pihole import Store
 from misp_ioc_scoring.sharing.infrastructure.scheduling.scheduler import sync
 from misp_ioc_scoring.shared.configuration import enabled, load_configuration, resolve_secret
 from misp_ioc_scoring.shared.database import engine_from_configuration
-from misp_ioc_scoring.shared.errors import OperationalError
+from misp_ioc_scoring.shared.errors import ConfigurationError, OperationalError
 from misp_ioc_scoring.shared.logging import configure_logging
 
 log = logging.getLogger(__name__)
@@ -36,18 +39,38 @@ def run_simple_blocking(engine, max_age_hours):
         return run_blocking(as_of, store.snapshot, timedelta(hours=max_age_hours), store)
 
 
+def run_carioca_scoring(engine, configuration):
+    """CARIOCA job: lock, read `as_of` once, recalculate the whole population."""
+    with CariocaRunner(engine, uuid4) as store:
+        if store is None:
+            return None
+        as_of = datetime.now(timezone.utc)
+        return run_carioca(as_of, store.snapshot, configuration, store)
+
+
+def approved_carioca_configuration(path):
+    try:
+        return load_carioca_configuration(path).require_approved()
+    except CariocaConfigurationError as error:
+        raise ConfigurationError(error.code) from None
+
+
 def main():
     flags = [enabled(key) for key in ("SCORING_SIMPLE_ENABLED", "SCORING_CARIOCA_ENABLED",
                                     "SHARING_PIHOLE_ENABLED", "SHARING_MISP_ENABLED")]
     if not any(flags):
         return
     config = load_configuration("scoring-sharing")
+    carioca = approved_carioca_configuration(config.carioca_config_path) if config.carioca_scoring_enabled else None
     engine = engine_from_configuration(config)
     try:
         scheduler = BlockingScheduler(timezone="UTC")
         if config.simple_scoring_enabled:
             score = partial(safe_job, "scoring", partial(run_simple_blocking, engine, config.score_max_age_hours))
             add_scoring_job(scheduler, score, config.scoring_daily_cron)
+        if carioca is not None:
+            daily = partial(safe_job, "carioca", partial(run_carioca_scoring, engine, carioca))
+            add_scoring_job(scheduler, daily, config.scoring_daily_cron, "carioca-scoring")
         if config.pihole_enabled:
             client = PiHole(config.pihole_url, resolve_secret(config.pihole_password_secret_ref).get_secret_value(),
                             allow_http=enabled("PIHOLE_ALLOW_HTTP"))

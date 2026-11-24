@@ -27,6 +27,7 @@ class ObservationEvaluation:
     source_norm: float
     priority: float
     minmax_degenerate: tuple[str, ...] = ()
+    event_categories: tuple[str, ...] = ()  # categories with n > 0 in the event
 
 
 def order_key(evaluation):

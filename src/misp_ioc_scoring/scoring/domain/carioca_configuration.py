@@ -119,8 +119,11 @@ def _text(raw, key, code):
 def parse_configuration(text: str, categories) -> CariocaConfiguration:
     """Parse and validate; `categories` are the MISP event categories (`collection.api.CATEGORIES`)."""
     categories = tuple(categories)
+    lines = text.splitlines() if isinstance(text, str) else []
+    while lines and (not lines[0].strip() or lines[0].lstrip().startswith('#')):
+        lines.pop(0)  # YAML comments are accepted only in the header
     try:
-        raw = json.loads(text)
+        raw = json.loads('\n'.join(lines))
     except (TypeError, ValueError):
         raise CariocaConfigurationError('CARIOCA_CONFIGURATION_FORMAT') from None
     if not isinstance(raw, dict):

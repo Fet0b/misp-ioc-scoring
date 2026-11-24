@@ -33,13 +33,13 @@ class Configuration(BaseModel):
     sharing_retry_attempts: int | None = None
     sharing_retry_backoff_seconds: float | None = None
     carioca_config_path: str | None = None
-    carioca_top_n: int | None = None
     misp_peers_secret_ref: str | None = Field(default=None, repr=False)
     peer_minimum_scores_secret_ref: str | None = Field(default=None, repr=False)
     peer_credentials_secret_ref: str | None = Field(default=None, repr=False)
 
     pihole_enabled: bool = False
     simple_scoring_enabled: bool = False
+    carioca_scoring_enabled: bool = False
     pihole_url: str | None = None
     pihole_password_secret_ref: str | None = Field(default=None, repr=False)
     pihole_interval_seconds: float | None = None
@@ -126,13 +126,19 @@ def load_configuration(service: str, environ: Mapping[str, str] | None = None) -
         number('RECONCILE_MAX_REMOVAL_RATIO', maximum=1, inclusive=True)
         number('MISP_REQUEST_TIMEOUT_SECONDS')
     if service == 'scoring-sharing':
-        for key in ('SHARING_MISP_ENABLED', 'SCORING_CARIOCA_ENABLED'):
-            if enabled(key, environ=env):
-                raise ConfigurationError(key + '_NOT_IMPLEMENTED')
+        if enabled('SHARING_MISP_ENABLED', environ=env):
+            raise ConfigurationError('SHARING_MISP_ENABLED_NOT_IMPLEMENTED')
         simple = enabled('SCORING_SIMPLE_ENABLED', environ=env)
+        carioca = enabled('SCORING_CARIOCA_ENABLED', environ=env)
         pihole = enabled('SHARING_PIHOLE_ENABLED', environ=env)
-        values.update(simple_scoring_enabled=simple, pihole_enabled=pihole)
-        if simple:
+        values.update(simple_scoring_enabled=simple, carioca_scoring_enabled=carioca, pihole_enabled=pihole)
+        if carioca:
+            # Content and approval are validated by the scoring module at startup.
+            path = required('CARIOCA_CONFIG_PATH')
+            if not Path(path).is_absolute() or not Path(path).is_file():
+                raise ConfigurationError('CARIOCA_CONFIG_PATH')
+            values['carioca_config_path'] = path
+        if simple or carioca:
             cron = required('SCORING_DAILY_CRON')
             try:
                 CronTrigger.from_crontab(cron, timezone='UTC')

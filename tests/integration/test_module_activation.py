@@ -49,3 +49,49 @@ def test_workers_start_only_enabled_jobs(monkeypatch, simple, pihole, expected):
     collector.main()
     scoring_sharing.main()
     assert events == expected + (["dispose"] if simple else [])
+
+
+def _carioca_env(monkeypatch, path):
+    for key, value in {"SCORING_SIMPLE_ENABLED": "false", "SCORING_CARIOCA_ENABLED": "true",
+                       "SHARING_MISP_ENABLED": "false", "SHARING_PIHOLE_ENABLED": "false",
+                       "DATABASE_URL": "postgresql+psycopg://scoring@db/test",
+                       "SCORING_DAILY_CRON": "0 3 * * *", "CARIOCA_CONFIG_PATH": str(path)}.items():
+        monkeypatch.setenv(key, value)
+
+
+def test_carioca_requires_approved_configuration(monkeypatch, tmp_path):
+    import json
+    from pathlib import Path
+    from misp_ioc_scoring.shared.errors import ConfigurationError
+
+    versioned = Path(__file__).resolve().parents[2] / "config" / "carioca-orgc-proxy-v3.yaml"
+    _carioca_env(monkeypatch, versioned)
+    with pytest.raises(ConfigurationError, match="CARIOCA_CONFIGURATION_NOT_APPROVED"):
+        scoring_sharing.main()
+
+    from tests.support.carioca import config_dict
+    approved = tmp_path / "carioca.yaml"
+    approved.write_text(json.dumps(config_dict()))
+    _carioca_env(monkeypatch, approved)
+    events = []
+
+    class Engine:
+        def dispose(self):
+            events.append("dispose")
+
+    class Scheduler:
+        def __init__(self, timezone):
+            self.jobs = []
+
+        def add_job(self, job, *args, **kwargs):
+            self.jobs.append(kwargs["id"])
+            job()
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(scoring_sharing, "BlockingScheduler", Scheduler)
+    monkeypatch.setattr(scoring_sharing, "engine_from_configuration", lambda config: Engine())
+    monkeypatch.setattr(scoring_sharing, "run_carioca_scoring", lambda *args: events.append("carioca"))
+    scoring_sharing.main()
+    assert events == ["carioca", "dispose"]

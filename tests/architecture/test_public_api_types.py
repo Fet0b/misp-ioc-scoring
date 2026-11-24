@@ -3,6 +3,7 @@ import dataclasses
 import inspect
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -13,6 +14,7 @@ from misp_ioc_scoring.scoring import api as scoring_api
 from misp_ioc_scoring.shared.database import Base, transaction
 
 FORBIDDEN = (Base, Row, RowMapping)
+VERSIONED_CONFIG = Path(__file__).resolve().parents[2] / 'config' / 'carioca-orgc-proxy-v3.yaml'
 
 
 def walk(value, path='result', seen=None):
@@ -61,6 +63,13 @@ def calls(session, engine):
             'blocking_decision': lambda: scoring_api.blocking_decision(
                 session, observation.source_instance_id, attribute_uuid=observation.attribute_uuid),
             'effective_blocks': lambda: scoring_api.effective_blocks(session),
+            'load_carioca_configuration': lambda: scoring_api.load_carioca_configuration(VERSIONED_CONFIG),
+            'current_carioca_run': lambda: scoring_api.current_carioca_run(session),
+            'carioca_scores': lambda: list(scoring_api.carioca_scores(
+                session, scoring_api.current_carioca_run(session).id)),
+            'exclusions': lambda: scoring_api.exclusions(session, scoring_api.current_carioca_run(session).id),
+            'explain': lambda: scoring_api.explain(session, scoring_api.current_carioca_run(session).id,
+                                                   observation.ioc_id),
         },
     }
 
@@ -84,9 +93,13 @@ def populated(engine):
         observations, {o.attribute_uuid for o in observations},
         [WarninglistEntry('test', 'l', 'regex', '.*')], now)
     run_simple_blocking(engine, 48)
+    from misp_ioc_scoring.entrypoints.scoring_sharing import run_carioca_scoring
+    from tests.support.carioca import configuration
+    run_carioca_scoring(engine, configuration())
     yield engine
     with engine.begin() as connection:
         connection.execute(text('TRUNCATE scoring.execucao_bloqueio CASCADE'))
+        connection.execute(text('TRUNCATE scoring.execucao_scoring, scoring.configuracao_carioca CASCADE'))
 
 
 def test_public_functions_return_domain_types(populated):
