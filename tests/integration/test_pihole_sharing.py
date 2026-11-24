@@ -124,3 +124,66 @@ def test_worker_publishes_only_current_evidence_and_reconciles_after_recovery(st
     finally:
         with engine.begin() as connection:
             connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))
+
+
+@pytest.fixture
+def carioca_store(engine):
+    with engine.begin() as connection:
+        connection.execute(text("TRUNCATE sharing.pihole_entry, sharing.pihole_attempt, sharing.pihole_policy"))
+    worker = create_engine(engine.url.set(username="scoring_sharing"))
+    try:
+        yield Store(worker, "https://pihole.example", 60, "env:PIHOLE_TEST_PASSWORD", "carioca", 50)
+    finally:
+        worker.dispose()
+        with engine.begin() as connection:
+            connection.execute(text("TRUNCATE scoring.execucao_scoring, scoring.configuracao_carioca CASCADE"))
+
+
+def _carioca_fixture(engine):
+    from datetime import datetime, timezone
+    from misp_ioc_scoring.entrypoints.scoring_sharing import run_carioca_scoring
+    from tests.support.carioca import configuration
+    from tests.support.collected import collect, observation
+
+    now = datetime.now(timezone.utc)
+    collect(engine, [
+        observation("hi", "high.example", as_of=now, org="A", event="e1", tl="1", sa="2", age_days=1),
+        observation("lo", "low.example", as_of=now, org="B", event="e2", tl="4", sa="0", age_days=300),
+        observation("url", "https://url.example/x", "url", as_of=now, org="A", event="e1"),
+    ], now)
+    return run_carioca_scoring(engine, configuration())
+
+
+def test_carioca_mode_sends_only_domains_at_or_above_cutoff(carioca_store, engine):
+    summary = _carioca_fixture(engine)
+    remote = Remote()
+    sync(carioca_store.engine, remote, carioca_store, 48)
+    assert remote.adds == ["high.example"]
+    evidence = carioca_store.entries()["high.example"]["evidence"][0]
+    assert evidence["model"] == "carioca" and evidence["scoring_run_id"] == str(summary.run_id)
+    assert evidence["priority_score"] >= 50
+    with carioca_store.engine.connect() as connection:
+        assert connection.execute(text("SELECT model, min_score FROM sharing.pihole_policy")).one() == ("carioca", 50)
+
+
+def test_carioca_mode_without_or_with_stale_run_sends_nothing_and_keeps_entries(carioca_store, engine, caplog):
+    remote = Remote()
+    sync(carioca_store.engine, remote, carioca_store, 48)
+    assert remote.adds == [] and "pihole_carioca_score_stale" in caplog.text
+    _carioca_fixture(engine)
+    sync(carioca_store.engine, remote, carioca_store, 48)
+    assert remote.adds == ["high.example"]
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE scoring.execucao_scoring SET finished_at = now() - interval '49 hours'"))
+    sync(carioca_store.engine, remote, carioca_store, 48)
+    assert remote.removes == [] and "high.example" in remote.rows
+    assert carioca_store.entries()["high.example"]["status"] == "confirmed"
+
+
+def test_carioca_mode_skips_untrusted_source(carioca_store, engine):
+    _carioca_fixture(engine)
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE collection.endpoint_coleta SET status='failed'"))
+    remote = Remote()
+    sync(carioca_store.engine, remote, carioca_store, 48)
+    assert remote.adds == []

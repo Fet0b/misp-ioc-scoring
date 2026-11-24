@@ -175,7 +175,7 @@ população vazia. Com `approved: false`, o serviço não inicia.
   - `content_hash` estável para o mesmo conteúdo canônico;
   - `approved: false` impede o cálculo com erro explícito;
   - resultados idênticos para entrada, configuração e `as_of` idênticos.
-- [ ] T029 [P] [US2] Criar `tests/unit/test_scoring_metrics.py` para as métricas da exportação a partir de tabelas fixture: última execução bem-sucedida (`as_of`, duração), população válida, exclusões por motivo, avisos de população vazia e MinMax degenerado, e corte do top-N.
+- [X] T029 [P] [US2] Criar `tests/unit/test_scoring_metrics.py` para as métricas da exportação a partir de tabelas fixture: última execução bem-sucedida (`as_of`, duração), população válida, exclusões por motivo, avisos de população vazia e MinMax degenerado, e corte do top-N.
 - [X] T030 [P] [US2] Criar `tests/integration/test_scoring_persistence.py` em PostgreSQL:
   - persistência de execução, estatísticas, `avaliacao_observacao` (única por `(scoring_run_id, source_instance_id, attribute_uuid)`), `resultado_score` (único por `(scoring_run_id, ioc_id)`) e exclusões;
   - execução falha não substitui a vigente;
@@ -226,8 +226,8 @@ população vazia. Com `approved: false`, o serviço não inicia.
 - [X] T046 [US2] Ligar o job em `<pkg>/entrypoints/scoring_sharing.py` (abre o `CariocaRunner`, lê o `as_of` uma vez e chama `run_carioca`) e agendá-lo por `<pkg>/scoring/infrastructure/scheduling/scheduler.py` com `SCORING_DAILY_CRON`, `max_instances=1` e `coalesce`. Em `<pkg>/shared/configuration.py`, retirar `SCORING_CARIOCA_ENABLED` da lista `NOT_IMPLEMENTED`: com `true`, a inicialização exige `CARIOCA_CONFIG_PATH` legível, configuração válida e `approved: true`, ou falha com `CARIOCA_CONFIGURATION_NOT_APPROVED`. Atualizar `tests/integration/test_module_activation.py` e `tests/unit/test_configuration.py`.
 - [X] T047 [US2] Implementar em `<pkg>/scoring/api.py` `current_carioca_run`, `carioca_scores` (paginado) e `exclusions`, conforme [contracts/scoring-api.md](./contracts/scoring-api.md), com dataclasses congeladas `CariocaRun` e `CariocaScore` definidas em `<pkg>/scoring/domain/carioca_results.py`.
 - [X] T048 [US2] Implementar `explain` em `<pkg>/scoring/application/score_explanation.py` e expô-lo em `<pkg>/scoring/api.py`. A explicação usa os termos canônicos do glossário e inclui: `as_of`, rank e top-N, observação vencedora, `observations_evaluated`, componentes brutos e normalizados, σ das categorias, componentes com MinMax degenerado, motivo de exclusão e a limitação do proxy `orgc`.
-- [ ] T049 [P] [US2] Adicionar as funções de métrica em `tools/metrics/scoring.py` (última execução bem-sucedida, `as_of`, duração, população válida, exclusões por motivo, avisos de população vazia e MinMax degenerado, corte do top-N), lendo só tabelas exportadas, e registrá-las em `tools/export_observability.py`.
-- [ ] T050 [US2] Implementar o modo `carioca` do Pi-hole em `<pkg>/sharing/infrastructure/scheduling/scheduler.py` e `<pkg>/sharing/domain/pihole_policy.py`:
+- [X] T049 [P] [US2] Adicionar as funções de métrica em `tools/metrics/scoring.py` (última execução bem-sucedida, `as_of`, duração, população válida, exclusões por motivo, avisos de população vazia e MinMax degenerado, corte do top-N), lendo só tabelas exportadas, e registrá-las em `tools/export_observability.py`.
+- [X] T050 [US2] Implementar o modo `carioca` do Pi-hole em `<pkg>/sharing/infrastructure/scheduling/scheduler.py` e `<pkg>/sharing/domain/pihole_policy.py`:
   - ler `current_carioca_run` e `carioca_scores(min_score=PIHOLE_CARIOCA_MIN_SCORE)`, sem top-N;
   - se a execução vigente for mais antiga que `SCORE_MAX_AGE_HOURS`, não enviar, preservar as entradas e registrar WARNING;
   - aplicar `warninglist_index(..., mode="strict")` e `untrusted_sources`;
@@ -235,7 +235,7 @@ população vazia. Com `approved: false`, o serviço não inicia.
   - evidência com `model: "carioca"`, `as_of`, `priority_score` e `scoring_run_id`.
 
   Retirar `PIHOLE_CARIOCA_NOT_IMPLEMENTED` de `<pkg>/shared/configuration.py`. O modo `carioca` exige `SCORING_CARIOCA_ENABLED=true`.
-- [ ] T051 [P] [US2] Acrescentar casos do modo `carioca` em `tests/integration/test_pihole_sharing.py`: acima e abaixo do corte, execução vigente vencida (nada enviado e entradas preservadas), sem execução, origem não confiável e URL ignorada.
+- [X] T051 [P] [US2] Acrescentar casos do modo `carioca` em `tests/integration/test_pihole_sharing.py`: acima e abaixo do corte, execução vigente vencida (nada enviado e entradas preservadas), sem execução, origem não confiável e URL ignorada.
 - [ ] T052 [US2] Criar o benchmark `tests/benchmark/test_scoring_performance.py` com o gerador `tests/benchmark/dataset.py`: cerca de 270 mil IOCs válidos sintéticos, com distribuição realista de categorias, organizações (27, duas com cerca de 92% dos pares) e idades. Quando `BENCHMARK_DATABASE_URL` estiver definido, usar uma cópia do MISP de estudos e conferir também a tabela de fontes do Notion §4 (CIRCL S' 100; CthulhuSPRL.be 59,92; Krawczyk 47,05; PageRank do CIRCL 0,40966). O recálculo completo deve terminar em até 1 hora (SC-011). Registrar a decisão entre memória e SQL em `research.md`.
 - [ ] T053 [P] [US2] Acrescentar ao `docs/domain-glossary.md` os termos "Avaliação de observação" e "Observação vencedora", com sinônimos a evitar.
 

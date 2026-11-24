@@ -43,6 +43,8 @@ class Configuration(BaseModel):
     pihole_url: str | None = None
     pihole_password_secret_ref: str | None = Field(default=None, repr=False)
     pihole_interval_seconds: float | None = None
+    pihole_score_model: str = 'default'
+    pihole_carioca_min_score: float | None = None
 
 
 def resolve_secret(reference: str, environ: Mapping[str, str] | None = None) -> SecretStr:
@@ -149,11 +151,13 @@ def load_configuration(service: str, environ: Mapping[str, str] | None = None) -
             model = env.get('PIHOLE_SCORE_MODEL', 'default')
             if model == 'carioca':
                 number('PIHOLE_CARIOCA_MIN_SCORE', maximum=100, inclusive=True)
-                raise ConfigurationError('PIHOLE_CARIOCA_NOT_IMPLEMENTED')
-            if model != 'default':
+                if not carioca:
+                    raise ConfigurationError('PIHOLE_REQUIRES_SCORING_CARIOCA_ENABLED')
+            elif model != 'default':
                 raise ConfigurationError('PIHOLE_SCORE_MODEL')
-            if not simple:
+            elif not simple:
                 raise ConfigurationError('PIHOLE_REQUIRES_SCORING_SIMPLE_ENABLED')
+            values['pihole_score_model'] = model
             endpoint = required('PIHOLE_URL')
             allow_http = enabled('PIHOLE_ALLOW_HTTP', environ=env)
             try:

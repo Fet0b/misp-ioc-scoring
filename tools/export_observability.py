@@ -18,6 +18,7 @@ from misp_ioc_scoring.shared.database import engine_from_configuration
 from misp_ioc_scoring.shared.errors import OperationalError
 from misp_ioc_scoring.shared.logging import configure_logging
 from tools.metrics.collection import collection_metrics
+from tools.metrics.scoring import scoring_metrics
 
 SCHEMAS = ('collection', 'scoring', 'sharing')
 
@@ -112,6 +113,7 @@ def export(configuration):
                         rows = connection.execute(select(*columns).execution_options(stream_results=True)).mappings()
                         tables.append((key, [c.name for c in columns], rows, count))
                 metrics.extend(collection_metrics(connection, reflected))
+                metrics.extend(scoring_metrics(connection, reflected))
                 return write_workbook(configuration.export_output_dir, tables,
                                       configuration.export_max_rows_per_sheet, metrics)
     except OperationalError:

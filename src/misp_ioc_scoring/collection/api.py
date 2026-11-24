@@ -91,6 +91,15 @@ def source_generations(session) -> dict[str, int]:
             session.execute(select(EndpointModel.id, EndpointModel.generation))}
 
 
+def warninglist_entries(session) -> dict[str, tuple[WarninglistEntry, ...]]:
+    """Warninglist entries grouped by source (supported and unsupported)."""
+    grouped = {}
+    for e in session.scalars(select(WarninglistModel)):
+        grouped.setdefault(e.source_instance_id, []).append(
+            WarninglistEntry(e.source_instance_id, e.list_name, e.list_type, e.normalized_value))
+    return {source: tuple(entries) for source, entries in grouped.items()}
+
+
 def warninglist_index(entries, mode='strict') -> WarninglistIndex:
     """Index of the warninglist entries of one source; `mode` is `strict` or `fr027`."""
     if mode not in MODES:

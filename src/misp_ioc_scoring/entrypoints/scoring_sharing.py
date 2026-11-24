@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from misp_ioc_scoring.scoring.api import CariocaConfigurationError, load_carioca_configuration
+from misp_ioc_scoring.scoring.api import CariocaConfigurationError, ScoreModel, load_carioca_configuration
 from misp_ioc_scoring.scoring.application.score_population import run_carioca
 from misp_ioc_scoring.scoring.application.simple_blocking import run_blocking
 from misp_ioc_scoring.scoring.infrastructure.persistence.carioca import CariocaRunner
@@ -75,7 +75,8 @@ def main():
             client = PiHole(config.pihole_url, resolve_secret(config.pihole_password_secret_ref).get_secret_value(),
                             allow_http=enabled("PIHOLE_ALLOW_HTTP"))
             store = Store(engine, config.pihole_url, config.pihole_interval_seconds,
-                          config.pihole_password_secret_ref)
+                          config.pihole_password_secret_ref, ScoreModel(config.pihole_score_model),
+                          config.pihole_carioca_min_score)
             share = partial(safe_job, "pihole", partial(sync, engine, client, store, config.score_max_age_hours))
             scheduler.add_job(share, "interval", seconds=config.pihole_interval_seconds,
                               id="pihole", max_instances=1, coalesce=True,

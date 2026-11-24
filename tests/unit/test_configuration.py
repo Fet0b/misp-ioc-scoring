@@ -102,7 +102,7 @@ def test_scoring_flags_and_conditional_settings():
         with pytest.raises(ConfigurationError, match="PIHOLE_CARIOCA_MIN_SCORE"):
             load_configuration("scoring-sharing", pihole | {"PIHOLE_CARIOCA_MIN_SCORE": value})
     for value in ("0", "100"):
-        with pytest.raises(ConfigurationError, match="PIHOLE_CARIOCA_NOT_IMPLEMENTED"):
+        with pytest.raises(ConfigurationError, match="PIHOLE_REQUIRES_SCORING_CARIOCA_ENABLED"):
             load_configuration("scoring-sharing", pihole | {"PIHOLE_CARIOCA_MIN_SCORE": value})
     active = env | {"SCORING_SIMPLE_ENABLED": "true", "SCORING_DAILY_CRON": "0 3 * * *",
                     "SHARING_PIHOLE_ENABLED": "true", "PIHOLE_URL": "https://dns.example",

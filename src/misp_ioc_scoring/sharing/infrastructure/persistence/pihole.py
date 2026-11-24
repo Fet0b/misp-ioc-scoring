@@ -9,15 +9,17 @@ from misp_ioc_scoring.shared.database import transaction
 
 
 class Store:
-    def __init__(self, engine, destination, interval_seconds, password_secret_ref):
+    def __init__(self, engine, destination, interval_seconds, password_secret_ref, model="default", min_score=None):
         self.engine = engine
+        self.model = model
+        self.min_score = min_score
         self.destination = destination
         self.interval_seconds = interval_seconds
         self.password_secret_ref = password_secret_ref
 
     def record_policy(self, session):
         query = insert(PiHolePolicyModel).values(
-            destination=self.destination, model="default", min_score=None,
+            destination=self.destination, model=str(self.model), min_score=self.min_score,
             interval_seconds=self.interval_seconds, password_secret_ref=self.password_secret_ref,
         )
         session.execute(query.on_conflict_do_update(
