@@ -20,6 +20,7 @@ from misp_ioc_scoring.shared.logging import configure_logging
 from tools.metrics.collection import collection_metrics
 from tools.metrics.candidates import candidate_metrics
 from tools.metrics.scoring import scoring_metrics
+from tools.metrics.sharing import sharing_metrics
 
 SCHEMAS = ('collection', 'scoring', 'sharing')
 
@@ -116,6 +117,7 @@ def export(configuration):
                 metrics.extend(collection_metrics(connection, reflected))
                 metrics.extend(scoring_metrics(connection, reflected))
                 metrics.extend(candidate_metrics(connection, reflected))
+                metrics.extend(sharing_metrics(connection, reflected, configuration.score_max_age_hours))
                 return write_workbook(configuration.export_output_dir, tables,
                                       configuration.export_max_rows_per_sheet, metrics)
     except OperationalError:

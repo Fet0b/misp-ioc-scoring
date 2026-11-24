@@ -14,7 +14,14 @@ from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import 
 from misp_ioc_scoring.scoring.infrastructure.scheduling.scheduler import add_scoring_job
 from misp_ioc_scoring.sharing.adapters.pihole import PiHole
 from misp_ioc_scoring.sharing.infrastructure.persistence.pihole import Store
+from misp_ioc_scoring.shared.misp.client import MispClient
+from misp_ioc_scoring.sharing.adapters.synchronization import MispSynchronization
+from misp_ioc_scoring.sharing.application.share_eligible import share_eligible
+from misp_ioc_scoring.sharing.application.sharing_status import report_sharing
 from misp_ioc_scoring.sharing.application.sync_pihole import PiHolePolicy, plan_and_reconcile
+from misp_ioc_scoring.sharing.infrastructure.peer_configuration import load_sharing_policy
+from misp_ioc_scoring.sharing.infrastructure.persistence.misp import SqlSharingStore
+from misp_ioc_scoring.sharing.infrastructure.scheduling.misp_sharing import MispSharingRunner
 from misp_ioc_scoring.sharing.infrastructure.scheduling.scheduler import PiHoleRunner
 from misp_ioc_scoring.shared.configuration import enabled, load_configuration, resolve_secret
 from misp_ioc_scoring.shared.database import engine_from_configuration
@@ -60,6 +67,25 @@ def sync_pihole(engine, client, store, max_age_hours):
                            fresh=runner.fresh, clock=lambda: datetime.now(timezone.utc))
 
 
+def share_misp(engine, misp, store, policy, max_age_hours):
+    """MISP peers job: lock, read `as_of` once, share eligible IOCs."""
+    with MispSharingRunner(engine) as reader:
+        if reader is None:
+            return None
+        result = share_eligible(datetime.now(timezone.utc), reader, misp, store, policy,
+                                max_age=timedelta(hours=max_age_hours))
+    report_sharing(result)
+    return result
+
+
+def misp_synchronization(config, policy):
+    local = MispClient(policy.local.base_url, policy.local.credential_secret_ref,
+                       config.misp_request_timeout_seconds, allow_http=policy.local.allow_http)
+    return MispSynchronization(local, lambda peer: MispClient(
+        peer.base_url, peer.credential_secret_ref, config.misp_request_timeout_seconds,
+        allow_http=peer.allow_http))
+
+
 def approved_carioca_configuration(path):
     try:
         return load_carioca_configuration(path).require_approved()
@@ -93,6 +119,15 @@ def main():
             scheduler.add_job(share, "interval", seconds=config.pihole_interval_seconds,
                               id="pihole", max_instances=1, coalesce=True,
                               next_run_time=datetime.now(timezone.utc))
+        if config.misp_sharing_enabled:
+            policy = load_sharing_policy(config)
+            store = SqlSharingStore(engine, policy)
+            store.record_policy(datetime.now(timezone.utc))
+            misp = misp_synchronization(config, policy)
+            share = partial(safe_job, "misp_sharing",
+                            partial(share_misp, engine, misp, store, policy, config.score_max_age_hours))
+            scheduler.add_job(share, "interval", seconds=config.sharing_interval_seconds, id="misp-sharing",
+                              max_instances=1, coalesce=True, next_run_time=datetime.now(timezone.utc))
         scheduler.start()
     finally:
         engine.dispose()

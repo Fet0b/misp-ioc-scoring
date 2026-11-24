@@ -33,3 +33,8 @@ def test_published_advances_revision():
 def test_collection_only_fields_do_not_advance_revision(changes):
     before = observation()
     assert not inputs_changed(before, replace(before, **changes))
+
+
+def test_event_sharing_group_does_not_advance_revision():
+    before = observation()
+    assert not inputs_changed(before, replace(before, event_sharing_group_id='9'))

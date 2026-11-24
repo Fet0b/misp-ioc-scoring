@@ -34,8 +34,7 @@ class Configuration(BaseModel):
     sharing_retry_backoff_seconds: float | None = None
     carioca_config_path: str | None = None
     misp_peers_secret_ref: str | None = Field(default=None, repr=False)
-    peer_minimum_scores_secret_ref: str | None = Field(default=None, repr=False)
-    peer_credentials_secret_ref: str | None = Field(default=None, repr=False)
+    misp_sharing_enabled: bool = False
 
     pihole_enabled: bool = False
     simple_scoring_enabled: bool = False
@@ -128,10 +127,19 @@ def load_configuration(service: str, environ: Mapping[str, str] | None = None) -
         number('RECONCILE_MAX_REMOVAL_RATIO', maximum=1, inclusive=True)
         number('MISP_REQUEST_TIMEOUT_SECONDS')
     if service == 'scoring-sharing':
-        if enabled('SHARING_MISP_ENABLED', environ=env):
-            raise ConfigurationError('SHARING_MISP_ENABLED_NOT_IMPLEMENTED')
         simple = enabled('SCORING_SIMPLE_ENABLED', environ=env)
         carioca = enabled('SCORING_CARIOCA_ENABLED', environ=env)
+        if enabled('SHARING_MISP_ENABLED', environ=env):
+            if not carioca:
+                raise ConfigurationError('SHARING_MISP_REQUIRES_SCORING_CARIOCA_ENABLED')
+            reference = required('MISP_PEERS_SECRET_REF')
+            if not reference.startswith(('file:/', 'env:')):
+                raise ConfigurationError('MISP_PEERS_SECRET_REF')
+            values.update(misp_sharing_enabled=True, misp_peers_secret_ref=reference)
+            number('SHARING_INTERVAL_SECONDS')
+            number('SHARING_RETRY_ATTEMPTS', integer=True)
+            number('SHARING_RETRY_BACKOFF_SECONDS', inclusive=True)
+            number('MISP_REQUEST_TIMEOUT_SECONDS')
         pihole = enabled('SHARING_PIHOLE_ENABLED', environ=env)
         values.update(simple_scoring_enabled=simple, carioca_scoring_enabled=carioca, pihole_enabled=pihole)
         if carioca:

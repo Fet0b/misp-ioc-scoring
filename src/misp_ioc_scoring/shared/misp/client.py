@@ -30,7 +30,9 @@ class MispClient:
 
     def call(self, operation: str, **kwargs):
         if operation not in {'search', 'warninglists', 'get_warninglist', 'get_event',
-                             'push', 'get_job', 'get_server'}:
+                             'push', 'get_job', 'get_server', 'event_exists', 'attribute_exists',
+                             'add_event', 'add_attribute', 'update_attribute', 'delete_attribute',
+                             'publish', 'sharing_groups'}:
             raise OperationalError('misp_operation_not_allowed')
         try:
             response = getattr(self._client, operation)(**kwargs)

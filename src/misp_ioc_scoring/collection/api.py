@@ -80,6 +80,20 @@ def collection_snapshot(session) -> CollectionSnapshot:
     return CollectionSnapshot(sources, tuple(_observation(*row) for row in rows), warninglists, rejections)
 
 
+def observations_of(session, ioc_ids) -> dict:
+    """IOC -> tuple of its `ObservationSnapshot`s (active and removed)."""
+    ids = list(ioc_ids)
+    grouped = {}
+    for start in range(0, len(ids), 5000):
+        rows = session.execute(select(ObservationModel, IOCModel.normalized_value, IOCModel.input_revision)
+                               .join(IOCModel, IOCModel.id == ObservationModel.ioc_id)
+                               .where(ObservationModel.ioc_id.in_(ids[start:start + 5000]))).all()
+        for row in rows:
+            observation = _observation(*row)
+            grouped.setdefault(observation.ioc_id, []).append(observation)
+    return {ioc: tuple(items) for ioc, items in grouped.items()}
+
+
 def current_input_revisions(session, ioc_ids) -> dict:
     """Current `input_revision` of the given IOCs, read in the caller's transaction."""
     ids = list(ioc_ids)

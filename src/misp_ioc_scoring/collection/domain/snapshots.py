@@ -27,12 +27,34 @@ class SourceSnapshot:
         return limit is not None and now < limit
 
 
+# MISP distribution levels from most to least restrictive; 4 (sharing group) is narrower than 1.
+RESTRICTIVENESS = {'0': 0, '4': 1, '1': 2, '2': 3, '3': 4}
+INHERIT = '5'
+
+
 @dataclass(frozen=True, kw_only=True)
 class ObservationSnapshot(Observation):
     """Source observation together with the identity and revision of its IOC."""
     ioc_id: UUID
     normalized_value: str
     input_revision: int
+
+    def effective_distribution(self) -> tuple[str, str | None]:
+        """(distribution, sharing group id): the most restrictive of attribute and event.
+
+        `5` inherits from the event. A sharing group (`4`) without a known group id, or
+        attribute and event in different sharing groups, counts as `0` (organization only).
+        """
+        event = (self.event_distribution, self.event_sharing_group_id)
+        attribute = event if self.distribution == INHERIT else (self.distribution, self.sharing_group_id)
+        candidates = [item for item in (attribute, event) if item[0] in RESTRICTIVENESS]
+        if len(candidates) < 2:
+            return '0', None
+        groups = {group for level, group in candidates if level == '4'}
+        if any(level == '4' and group is None for level, group in candidates) or len(groups) > 1:
+            return '0', None
+        level = min((item[0] for item in candidates), key=RESTRICTIVENESS.get)
+        return (level, groups.pop()) if level == '4' else (level, None)
 
 
 @dataclass(frozen=True)

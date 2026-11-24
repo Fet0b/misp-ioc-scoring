@@ -25,3 +25,4 @@ class Observation:
     tags: tuple[str, ...] = ()
     removed_at: datetime | None = None
     attribute_id: int | None = None
+    event_sharing_group_id: str | None = None

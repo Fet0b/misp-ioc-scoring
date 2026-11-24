@@ -316,7 +316,7 @@ o operador é avisado.
 
 ### Tests for User Story 4
 
-- [ ] T071 [P] [US4] Criar `tests/unit/test_sharing_eligibility.py`:
+- [X] T071 [P] [US4] Criar `tests/unit/test_sharing_eligibility.py`:
   - limite do mínimo por peer (igual passa, abaixo não);
   - top-N;
   - warninglist em modo `fr027` torna inelegível e registra o motivo;
@@ -326,8 +326,8 @@ o operador é avisado.
   - o envio retoma depois de nova execução bem-sucedida;
   - distribuição (FR-016): IOC com observações `0` e `3` é elegível e sai com `3`; com `1` e `3`, sai com `1`; com `4` e o peer no sharing group, sai com `4` e o mesmo grupo; com `4` e o peer fora do grupo, ou só `0`, ou só eventos não publicados, fica inelegível com `distribution_not_allowed`; atributo com `5` herda a distribuição e o sharing group do evento; sem `event_sharing_group_id` em dado legado, `5` sobre evento `4` conta como `0`;
   - em empate de distribuição entre observações que alcançam o peer, vale o desempate da agregação (`source_created_at`, depois `(source_instance_id, attribute_uuid)`).
-- [ ] T072 [P] [US4] Criar `tests/unit/test_peer_configuration.py`: mínimo fora de 0–100 ou campo de peer ausente impede o compartilhamento com erro explícito; segredos continuam como referências; o hash da política efetiva muda quando a configuração muda.
-- [ ] T073 [P] [US4] Criar `tests/contract/test_misp_sharing.py` com respostas MISP simuladas:
+- [X] T072 [P] [US4] Criar `tests/unit/test_peer_configuration.py`: mínimo fora de 0–100 ou campo de peer ausente impede o compartilhamento com erro explícito; segredos continuam como referências; o hash da política efetiva muda quando a configuração muda.
+- [X] T073 [P] [US4] Criar `tests/contract/test_misp_sharing.py` com respostas MISP simuladas:
   - criação idempotente do evento de saída por peer (`outbound_event_uuid`) e dos atributos com UUID v5 de `peer_id` + `ioc_id`;
   - o evento de saída leva a distribuição máxima da política do peer, e cada atributo leva a distribuição (e o sharing group, se `4`) da observação que o tornou elegível, nunca mais ampla;
   - quando a distribuição permitida diminui antes de uma nova tentativa, o atributo é atualizado ou removido antes da publicação;
@@ -335,21 +335,21 @@ o operador é avisado.
   - timeout vira `ambiguous` e é reconciliado pela leitura antes de repetir;
   - aceitação parcial confirma só os itens aceitos;
   - IOC que deixou de ser elegível tem o atributo removido (soft delete) antes da publicação.
-- [ ] T074 [P] [US4] Criar `tests/integration/test_sharing_persistence.py` em PostgreSQL: registro da política efetiva, estados das tentativas, idempotência da repetição (uma tentativa corrente por `(peer_id, ioc_id)`), elegibilidade reavaliada antes de nova tentativa e papel do coletor sem escrita em `sharing`.
-- [ ] T075 [P] [US4] Criar `tests/unit/test_sharing_metrics.py` para as métricas da exportação: tentativas por estado, política efetiva e indicador de suspensão calculado pela idade da última execução bem-sucedida contra `SCORE_MAX_AGE_HOURS`.
+- [X] T074 [P] [US4] Criar `tests/integration/test_sharing_persistence.py` em PostgreSQL: registro da política efetiva, estados das tentativas, idempotência da repetição (uma tentativa corrente por `(peer_id, ioc_id)`), elegibilidade reavaliada antes de nova tentativa e papel do coletor sem escrita em `sharing`.
+- [X] T075 [P] [US4] Criar `tests/unit/test_sharing_metrics.py` para as métricas da exportação: tentativas por estado, política efetiva e indicador de suspensão calculado pela idade da última execução bem-sucedida contra `SCORE_MAX_AGE_HOURS`.
 
 ### Implementation for User Story 4
 
 
-- [ ] T076 [P] [US4] Implementar `<pkg>/sharing/domain/sharing.py`: Política de compartilhamento por peer e a função de elegibilidade (score válido da execução vigente, maior ou igual ao mínimo de 0 a 100, `in_top_n` e ausência em warninglist `fr027`), com a regra de distribuição `DistributionDecision` de `data-model.md` ("Elegibilidade de distribuição": basta uma observação ativa, de evento publicado, com distribuição efetiva `1`, `2` ou `3`, ou `4` com o servidor do peer no sharing group; vale a mais restritiva, com `4` mais restritiva que `1`; `0` nunca alcança), e com motivos de inelegibilidade em `StrEnum` (`below_minimum`, `outside_top_n`, `warninglist`, `stale_score`, `no_valid_score`, `distribution_not_allowed`) e estados de tentativa em `StrEnum` (`eligible`, `requested`, `confirmed`, `failed`, `ambiguous`, `ineligible`, `suspended`).
-- [ ] T077 [P] [US4] Implementar `<pkg>/sharing/infrastructure/peer_configuration.py`, que lê do ambiente do container `scoring-sharing` (`MISP_PEERS_SECRET_REF` apontando para JSON com `peer_id`, `base_url`, `credential_secret_ref`, `minimum_priority_score`, `distribution` e `sharing_group_uuid` opcional), mais `SHARING_INTERVAL_SECONDS`, `SHARING_RETRY_ATTEMPTS` e `SHARING_RETRY_BACKOFF_SECONDS`. Valida na inicialização (configuração inválida ou ausente impede o compartilhamento com erro explícito) e registra a política efetiva com hash e timestamp a cada início; mudanças só valem após reiniciar.
-- [ ] T078 [US4] Criar os mapeamentos em `<pkg>/sharing/infrastructure/persistence/models.py` e a migration `migrations/versions/0010_misp_sharing.py` (schema `sharing`):
+- [X] T076 [P] [US4] Implementar `<pkg>/sharing/domain/sharing.py`: Política de compartilhamento por peer e a função de elegibilidade (score válido da execução vigente, maior ou igual ao mínimo de 0 a 100, `in_top_n` e ausência em warninglist `fr027`), com a regra de distribuição `DistributionDecision` de `data-model.md` ("Elegibilidade de distribuição": basta uma observação ativa, de evento publicado, com distribuição efetiva `1`, `2` ou `3`, ou `4` com o servidor do peer no sharing group; vale a mais restritiva, com `4` mais restritiva que `1`; `0` nunca alcança), e com motivos de inelegibilidade em `StrEnum` (`below_minimum`, `outside_top_n`, `warninglist`, `stale_score`, `no_valid_score`, `distribution_not_allowed`) e estados de tentativa em `StrEnum` (`eligible`, `requested`, `confirmed`, `failed`, `ambiguous`, `ineligible`, `suspended`).
+- [X] T077 [P] [US4] Implementar `<pkg>/sharing/infrastructure/peer_configuration.py`, que lê do ambiente do container `scoring-sharing` (`MISP_PEERS_SECRET_REF` apontando para JSON com `peer_id`, `base_url`, `credential_secret_ref`, `minimum_priority_score`, `distribution` e `sharing_group_uuid` opcional), mais `SHARING_INTERVAL_SECONDS`, `SHARING_RETRY_ATTEMPTS` e `SHARING_RETRY_BACKOFF_SECONDS`. Valida na inicialização (configuração inválida ou ausente impede o compartilhamento com erro explícito) e registra a política efetiva com hash e timestamp a cada início; mudanças só valem após reiniciar.
+- [X] T078 [US4] Criar os mapeamentos em `<pkg>/sharing/infrastructure/persistence/models.py` e a migration `migrations/versions/0010_misp_sharing.py` (schema `sharing`):
   - `peer_misp`, com `credential_secret_ref` marcado com o comentário `secret`;
   - `politica_compartilhamento`, com `policy_hash`, `loaded_at` e `peers` sem segredos;
   - `tentativa_compartilhamento`, com `peer_id`, `ioc_id`, `scoring_run_id`, `policy_hash`, `outbound_attribute_uuid`, `permitting_source_instance_id`, `permitting_attribute_uuid`, `outbound_distribution` (0–4), `outbound_sharing_group_uuid` opcional, estado, `attempts`, `next_attempt_at`, `last_error` seguro, timestamps e uma tentativa corrente por `(peer_id, ioc_id)`.
-- [ ] T079 [P] [US4] Acrescentar em `tests/contract/test_misp_collection.py` o caso em que o evento tem `distribution=4` com `SharingGroup` e o atributo tem `distribution=5`, verificando que a observação guarda `event_sharing_group_id`, e em `tests/unit/test_input_revision.py` que mudar `event_sharing_group_id` não incrementa a revisão (não é entrada do CARIOCA).
-- [ ] T080 [US4] Guardar o sharing group do evento: campo `event_sharing_group_id: str | None` em `<pkg>/collection/adapters/schemas.py` (lido do `sharing_group_id` do evento) e em `<pkg>/collection/domain/observations.py`; coluna em `<pkg>/collection/infrastructure/persistence/models.py` e migration `migrations/versions/0011_event_sharing_group.py` (`down_revision` = `0010_misp_sharing`), nula para dados legados até a recoleta. Implementar `ObservationSnapshot.effective_distribution()` em `<pkg>/collection/domain/snapshots.py`: o menor entre `distribution` e `event_distribution`, com `5` herdando do evento, e o sharing group correspondente.
-- [ ] T081 [US4] Implementar o adaptador `<pkg>/sharing/adapters/synchronization.py` sobre `<pkg>/shared/misp/client.py`, conforme [contracts/misp-sharing.md](./contracts/misp-sharing.md) ("Revisão 2026-11-24"):
+- [X] T079 [P] [US4] Acrescentar em `tests/contract/test_misp_collection.py` o caso em que o evento tem `distribution=4` com `SharingGroup` e o atributo tem `distribution=5`, verificando que a observação guarda `event_sharing_group_id`, e em `tests/unit/test_input_revision.py` que mudar `event_sharing_group_id` não incrementa a revisão (não é entrada do CARIOCA).
+- [X] T080 [US4] Guardar o sharing group do evento: campo `event_sharing_group_id: str | None` em `<pkg>/collection/adapters/schemas.py` (lido do `sharing_group_id` do evento) e em `<pkg>/collection/domain/observations.py`; coluna em `<pkg>/collection/infrastructure/persistence/models.py` e migration `migrations/versions/0011_event_sharing_group.py` (`down_revision` = `0010_misp_sharing`), nula para dados legados até a recoleta. Implementar `ObservationSnapshot.effective_distribution()` em `<pkg>/collection/domain/snapshots.py`: o menor entre `distribution` e `event_distribution`, com `5` herdando do evento, e o sharing group correspondente.
+- [X] T081 [US4] Implementar o adaptador `<pkg>/sharing/adapters/synchronization.py` sobre `<pkg>/shared/misp/client.py`, conforme [contracts/misp-sharing.md](./contracts/misp-sharing.md) ("Revisão 2026-11-24"):
   - garantir o evento de saída por peer, com a distribuição máxima da política;
   - ler da instância local os sharing groups e seus servidores no início de cada rodada, para decidir se o peer pertence a um grupo;
   - gravar em cada atributo a `outbound_distribution` e o `outbound_sharing_group_uuid` da decisão;
@@ -357,15 +357,15 @@ o operador é avisado.
   - publicar o evento e ler o atributo no peer pelo UUID;
   - acompanhar jobs assíncronos separadamente da confirmação de recebimento;
   - não registrar credenciais nem valores de indicador.
-- [ ] T082 [US4] Implementar o caso de uso `share_eligible(as_of, run, scores, warninglists, policy, peers, store)` em `<pkg>/sharing/application/share_eligible.py`, no molde de T069:
+- [X] T082 [US4] Implementar o caso de uso `share_eligible(as_of, run, scores, warninglists, policy, peers, store)` em `<pkg>/sharing/application/share_eligible.py`, no molde de T069:
   - lê `current_carioca_run` e `carioca_scores(top_n_only=True, min_score=<mínimo do peer>)`;
   - suspende todos os envios novos, com WARNING e aviso persistido, se a execução vigente for mais antiga que `SCORE_MAX_AGE_HOURS`;
   - registra os motivos de inelegibilidade;
   - lê as observações do IOC por `collection.api` (`ObservationSnapshot.effective_distribution()`) e aplica `DistributionDecision` por peer;
   - preserva os controles nativos de publicação, distribuição e sharing group.
-- [ ] T083 [US4] Implementar as transições de estado das tentativas, a reconciliação por UUID depois de timeout ambíguo, as retentativas limitadas com backoff, a aceitação parcial e a reavaliação de score, top-N, warninglist, distribuição, idade do score e política antes de cada nova tentativa, em `<pkg>/sharing/application/share_eligible.py` e `<pkg>/sharing/infrastructure/persistence/misp.py`.
-- [ ] T084 [US4] Ligar o job de peers em `<pkg>/entrypoints/scoring_sharing.py` (intervalo `SHARING_INTERVAL_SECONDS`, `max_instances=1`, lock consultivo próprio) e registrar os estados lidos pela exportação em `<pkg>/sharing/application/sharing_status.py`. Em `<pkg>/shared/configuration.py`, retirar `SHARING_MISP_ENABLED` de `NOT_IMPLEMENTED`: com `true`, exigir `SCORING_CARIOCA_ENABLED=true` e peers válidos. Atualizar `compose.yaml`, `.env.example` e `tests/integration/test_module_activation.py`.
-- [ ] T085 [P] [US4] Adicionar as métricas de compartilhamento em `tools/metrics/sharing.py` (tentativas por estado, pendentes e falhas, hash da política efetiva, suspenso ou não), lendo só tabelas exportadas, e registrá-las em `tools/export_observability.py`.
+- [X] T083 [US4] Implementar as transições de estado das tentativas, a reconciliação por UUID depois de timeout ambíguo, as retentativas limitadas com backoff, a aceitação parcial e a reavaliação de score, top-N, warninglist, distribuição, idade do score e política antes de cada nova tentativa, em `<pkg>/sharing/application/share_eligible.py` e `<pkg>/sharing/infrastructure/persistence/misp.py`.
+- [X] T084 [US4] Ligar o job de peers em `<pkg>/entrypoints/scoring_sharing.py` (intervalo `SHARING_INTERVAL_SECONDS`, `max_instances=1`, lock consultivo próprio) e registrar os estados lidos pela exportação em `<pkg>/sharing/application/sharing_status.py`. Em `<pkg>/shared/configuration.py`, retirar `SHARING_MISP_ENABLED` de `NOT_IMPLEMENTED`: com `true`, exigir `SCORING_CARIOCA_ENABLED=true` e peers válidos. Atualizar `compose.yaml`, `.env.example` e `tests/integration/test_module_activation.py`.
+- [X] T085 [P] [US4] Adicionar as métricas de compartilhamento em `tools/metrics/sharing.py` (tentativas por estado, pendentes e falhas, hash da política efetiva, suspenso ou não), lendo só tabelas exportadas, e registrá-las em `tools/export_observability.py`.
 
 **Checkpoint**: US4 envia somente IOCs elegíveis, com estados auditáveis, e Pi-hole e
 peers MISP seguem o mesmo molde de caso de uso.

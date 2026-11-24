@@ -59,6 +59,7 @@ class ObservationModel(Base):
     distribution: Mapped[str] = mapped_column(String(30))
     event_distribution: Mapped[str] = mapped_column(String(30))
     sharing_group_id: Mapped[str | None] = mapped_column(String(100))
+    event_sharing_group_id: Mapped[str | None] = mapped_column(String(100))
     published: Mapped[bool] = mapped_column(Boolean)
     tags: Mapped[list] = mapped_column(JSON, default=list)
 

@@ -95,3 +95,46 @@ def test_carioca_requires_approved_configuration(monkeypatch, tmp_path):
     monkeypatch.setattr(scoring_sharing, "run_carioca_scoring", lambda *args: events.append("carioca"))
     scoring_sharing.main()
     assert events == ["carioca", "dispose"]
+
+
+def test_misp_sharing_job_requires_carioca_and_registers_policy(monkeypatch, tmp_path):
+    import json
+    from tests.support.carioca import config_dict
+
+    approved = tmp_path / "carioca.yaml"
+    approved.write_text(json.dumps(config_dict()))
+    _carioca_env(monkeypatch, approved)
+    for key, value in {"SHARING_MISP_ENABLED": "true", "MISP_PEERS_SECRET_REF": "env:TEST_PEERS",
+                       "SHARING_INTERVAL_SECONDS": "300", "SHARING_RETRY_ATTEMPTS": "3",
+                       "SHARING_RETRY_BACKOFF_SECONDS": "5", "MISP_REQUEST_TIMEOUT_SECONDS": "30"}.items():
+        monkeypatch.setenv(key, value)
+    events = []
+
+    class Engine:
+        def dispose(self):
+            events.append("dispose")
+
+    class Scheduler:
+        def __init__(self, timezone):
+            pass
+
+        def add_job(self, job, *args, **kwargs):
+            events.append(kwargs["id"])
+
+        def start(self):
+            pass
+
+    class Store:
+        def __init__(self, engine, policy):
+            pass
+
+        def record_policy(self, at):
+            events.append("policy")
+
+    monkeypatch.setattr(scoring_sharing, "BlockingScheduler", Scheduler)
+    monkeypatch.setattr(scoring_sharing, "engine_from_configuration", lambda config: Engine())
+    monkeypatch.setattr(scoring_sharing, "load_sharing_policy", lambda config: object())
+    monkeypatch.setattr(scoring_sharing, "SqlSharingStore", Store)
+    monkeypatch.setattr(scoring_sharing, "misp_synchronization", lambda config, policy: object())
+    scoring_sharing.main()
+    assert events == ["carioca-scoring", "policy", "misp-sharing", "dispose"]
