@@ -76,6 +76,26 @@ source_modules = ["misp_ioc_scoring.collection.domain", "misp_ioc_scoring.scorin
 forbidden_modules = ["sqlalchemy", "pymisp", "pydantic"]
 
 [[tool.importlinter.contracts]]
+name = "collection infrastructure implements ports without calling application"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.collection.infrastructure"]
+forbidden_modules = ["misp_ioc_scoring.collection.application"]
+
+[[tool.importlinter.contracts]]
+name = "scoring infrastructure implements ports without calling application"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.scoring.infrastructure"]
+forbidden_modules = ["misp_ioc_scoring.scoring.application"]
+
+[[tool.importlinter.contracts]]
+name = "sharing infrastructure implements ports without calling application"
+type = "forbidden"
+source_modules = ["misp_ioc_scoring.sharing.infrastructure"]
+forbidden_modules = ["misp_ioc_scoring.sharing.application"]
+# Temporary until T070 turns the Pi-hole scheduler into a runner.
+ignore_imports = ["misp_ioc_scoring.sharing.infrastructure.scheduling.scheduler -> misp_ioc_scoring.sharing.application.sync_pihole"]
+
+[[tool.importlinter.contracts]]
 name = "shared dependency direction"
 type = "forbidden"
 source_modules = ["misp_ioc_scoring.shared"]

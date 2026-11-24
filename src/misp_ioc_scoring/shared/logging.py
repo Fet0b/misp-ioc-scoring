@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 _SECRETS: set[str] = set()
-_ALLOWED = ('event', 'source_instance_id', 'run_id', 'count', 'code', 'status')
+_ALLOWED = ('event', 'source_instance_id', 'run_id', 'count', 'code', 'status', 'removed', 'rejections')
 
 
 def register_secret(value: str) -> None:

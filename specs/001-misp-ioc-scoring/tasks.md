@@ -257,7 +257,7 @@ pendência; falha ou revisão concorrente a mantém.
 
 ### Tests for User Story 3
 
-- [ ] T054 [P] [US3] Criar `tests/unit/test_reconcile_snapshot.py` para `reconcile_snapshot(existing, received, collected_at, removal_ratio)`:
+- [X] T054 [P] [US3] Criar `tests/unit/test_reconcile_snapshot.py` para `reconcile_snapshot(existing, received, collected_at, removal_ratio)`:
   - atualização com `source_modified_at` mais antigo é ignorada;
   - valor inválido ou não suportado vira rejeição e marca a observação ativa como removida;
   - valor válido cria o IOC pela identidade `(type, normalized_value)` com a entidade `IOC`;
@@ -271,16 +271,16 @@ pendência; falha ou revisão concorrente a mantém.
 
 ### Implementation for User Story 3
 
-- [ ] T057 [US3] (D7) Criar `<pkg>/collection/domain/reconciliation.py` com a dataclass `Changeset` (inserções, atualizações, IOCs novos, rejeições a gravar e a resolver, remoções e `ioc_ids` cuja revisão sobe) e a função pura `reconcile_snapshot`. Ela usa `normalize`, `inputs_changed` e a entidade `IOC` de `<pkg>/collection/domain/indicators.py`, e leva para o domínio a trava de remoção hoje em `<pkg>/collection/application/reconcile.py`.
-- [ ] T058 [US3] (D7) Reescrever `<pkg>/collection/infrastructure/persistence/repositories/observations.py::apply` para:
+- [X] T057 [US3] (D7) Criar `<pkg>/collection/domain/reconciliation.py` com a dataclass `Changeset` (inserções, atualizações, IOCs novos, rejeições a gravar e a resolver, remoções e `ioc_ids` cuja revisão sobe) e a função pura `reconcile_snapshot`. Ela usa `normalize`, `inputs_changed` e a entidade `IOC` de `<pkg>/collection/domain/indicators.py`, e leva para o domínio a trava de remoção hoje em `<pkg>/collection/application/reconcile.py`.
+- [X] T058 [US3] (D7) Reescrever `<pkg>/collection/infrastructure/persistence/repositories/observations.py::apply` para:
   - carregar as observações, IOCs e rejeições da origem em lote, eliminando o `SELECT` por observação;
   - chamar `reconcile_snapshot` e gravar o `Changeset` na mesma transação, mantendo os locks e a checagem `collection_checkpoint_superseded`;
   - devolver as contagens (aplicadas, rejeitadas por motivo, removidas).
 
   `tests/integration/test_collection_persistence.py`, `tests/integration/test_rejections.py` e T003 continuam iguais.
-- [ ] T059 [US3] (D8) Apagar `<pkg>/collection/application/reconcile.py` (a regra está agora em T057) e retirar do repositório os imports de `collection.application`. Mover `report_status` para dentro do caso de uso `<pkg>/collection/application/collect.py`, que o chama depois de `repository.apply` ou `repository.failed`.
-- [ ] T060 [US3] (D8) Adicionar em `pyproject.toml` contratos import-linter `forbidden` de `misp_ioc_scoring.<módulo>.infrastructure` para `misp_ioc_scoring.<módulo>.application` em `collection`, `scoring` e `sharing`. Depois de T021 e T045, `scoring` já cumpre o contrato. Se `sharing.infrastructure.scheduling` ainda importar `sharing.application.sync_pihole` (resolvido em T070), registrar a exceção temporária com `ignore_imports` e removê-la em T070.
-- [ ] T061 [US3] Completar o status da coleta em `<pkg>/collection/application/status.py` (resto da T037 antiga): o log estruturado de cada execução inclui contagem de rejeições por motivo e por origem, vinda de T058, sem credenciais, valores brutos ou payloads; acrescentar o caso em `tests/unit/test_collection_use_case.py`.
+- [X] T059 [US3] (D8) Apagar `<pkg>/collection/application/reconcile.py` (a regra está agora em T057) e retirar do repositório os imports de `collection.application`. Mover `report_status` para dentro do caso de uso `<pkg>/collection/application/collect.py`, que o chama depois de `repository.apply` ou `repository.failed`.
+- [X] T060 [US3] (D8) Adicionar em `pyproject.toml` contratos import-linter `forbidden` de `misp_ioc_scoring.<módulo>.infrastructure` para `misp_ioc_scoring.<módulo>.application` em `collection`, `scoring` e `sharing`. Depois de T021 e T045, `scoring` já cumpre o contrato. Se `sharing.infrastructure.scheduling` ainda importar `sharing.application.sync_pihole` (resolvido em T070), registrar a exceção temporária com `ignore_imports` e removê-la em T070.
+- [X] T061 [US3] Completar o status da coleta em `<pkg>/collection/application/status.py` (resto da T037 antiga): o log estruturado de cada execução inclui contagem de rejeições por motivo e por origem, vinda de T058, sem credenciais, valores brutos ou payloads; acrescentar o caso em `tests/unit/test_collection_use_case.py`.
 - [ ] T062 [US3] Criar o mapeamento em `<pkg>/scoring/infrastructure/persistence/candidates.py` e a migration `migrations/versions/0009_rescoring_candidates.py` (schema `scoring`), com `candidato_rescoring`: `ioc_id` como chave primária, `pending`, `input_revision`, `reason`, `marked_at`, `last_attempt_at` e `last_error`, com um candidato por IOC lógico.
 - [ ] T063 [US3] Implementar `<pkg>/scoring/domain/rescoring.py`: um IOC é candidato quando o `input_revision` lido no snapshot difere da revisão do seu último `resultado_score` válido. A derivação nunca altera `input_revision`.
 - [ ] T064 [US3] Implementar `<pkg>/scoring/application/score_candidates.py` e chamá-lo de `run_carioca` (T044) depois do cálculo:
