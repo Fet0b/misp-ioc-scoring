@@ -9,6 +9,8 @@ from sqlalchemy.orm import mapped_column
 from misp_ioc_scoring.collection.api import collection_snapshot
 from misp_ioc_scoring.shared.database import Base, transaction
 
+from .candidates import SqlCandidateStore, record_failure
+
 CARIOCA_LOCK = 874204
 COLLECTION_LOCK = 874201
 COMPONENTS = ("age_days", "attribute_raw", "attribute_norm", "threat_level", "analysis", "cade_raw",
@@ -123,9 +125,10 @@ def _evaluation_row(run_id, evaluation):
 class SqlCariocaStore:
     """`CariocaStore` over one REPEATABLE READ transaction holding the CARIOCA lock."""
 
-    def __init__(self, session, snapshot):
+    def __init__(self, session, snapshot, candidates=None):
         self.session = session
         self.snapshot = snapshot
+        self.candidates = candidates
         self.run_id = None
         self.as_of = None
         self.configuration_id = None
@@ -223,7 +226,7 @@ class CariocaRunner:
                 snapshot = collection_snapshot(session)
             finally:
                 session.execute(text(f"SELECT pg_advisory_unlock({COLLECTION_LOCK})"))
-            self._store = SqlCariocaStore(session, snapshot)
+            self._store = SqlCariocaStore(session, snapshot, SqlCandidateStore(session, self.plain_engine))
             return self._store
         except BaseException as error:
             self._fail(error)
@@ -253,3 +256,4 @@ class CariocaRunner:
         with transaction(self.plain_engine) as session:
             session.execute(_FAILED, {"id": store.run_id if store and store.run_id else self.new_run_id(),
                                       "as_of": store.as_of if store else None, "error": str(code)[:100]})
+            record_failure(session, code)

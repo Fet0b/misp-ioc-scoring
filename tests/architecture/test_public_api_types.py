@@ -52,6 +52,7 @@ def calls(session, engine):
             'collection_snapshot': lambda: snapshot,
             'untrusted_sources': lambda: collection_api.untrusted_sources(session, now, timedelta(hours=48)),
             'source_generations': lambda: collection_api.source_generations(session),
+            'current_input_revisions': lambda: collection_api.current_input_revisions(session, [observation.ioc_id]),
             'warninglist_entries': lambda: collection_api.warninglist_entries(session),
             'warninglist_index': lambda: collection_api.warninglist_index(snapshot.warninglists, 'strict'),
             'active_blocking_values': lambda: collection_api.active_blocking_values(session, ('domain',)),

@@ -15,6 +15,7 @@ from ..domain.feed_rank import feed_rank
 from ..domain.population import ioc_exclusion, observation_exclusion
 from ..domain.priority import minmax, spotis
 from ..domain.selection import ranked
+from .score_candidates import complete_candidates, mark_candidates
 
 log = logging.getLogger(__name__)
 EMPTY_POPULATION = 'empty_population'
@@ -122,11 +123,16 @@ def calculate(as_of, snapshot, configuration, categories=CATEGORIES):
 
 
 def run_carioca(as_of, snapshot, configuration, store: CariocaStore, *, batch_size=1000,
-                categories=CATEGORIES) -> RunSummary:
-    """Recalculate everything from the snapshot, never reusing earlier runs."""
+                categories=CATEGORIES, candidates=None) -> RunSummary:
+    """Recalculate everything from the snapshot, never reusing earlier runs.
+
+    `candidates` (a `CandidateStore`) only records traceability; it never selects IOCs.
+    """
     configuration.require_approved()
     run_id = uuid4()
     store.start(run_id, as_of, configuration)
+    if candidates is not None:
+        mark_candidates(snapshot, candidates, as_of)
     statistics, evaluations, results, exclusions, warnings = calculate(as_of, snapshot, configuration, categories)
     store.statistics(run_id, statistics)
     _batched(store.evaluations, run_id, evaluations, batch_size)
@@ -139,4 +145,6 @@ def run_carioca(as_of, snapshot, configuration, store: CariocaStore, *, batch_si
         log.warning('carioca_empty_population', extra={'event': 'carioca_empty_population',
                                                         'run_id': str(run_id), 'code': EMPTY_POPULATION})
     store.finish(run_id, summary)
+    if candidates is not None:
+        complete_candidates(snapshot, candidates, as_of)
     return summary

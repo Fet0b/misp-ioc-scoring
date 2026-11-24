@@ -45,7 +45,7 @@ def run_carioca_scoring(engine, configuration):
         if store is None:
             return None
         as_of = datetime.now(timezone.utc)
-        return run_carioca(as_of, store.snapshot, configuration, store)
+        return run_carioca(as_of, store.snapshot, configuration, store, candidates=store.candidates)
 
 
 def approved_carioca_configuration(path):

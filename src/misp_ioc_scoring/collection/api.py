@@ -80,6 +80,16 @@ def collection_snapshot(session) -> CollectionSnapshot:
     return CollectionSnapshot(sources, tuple(_observation(*row) for row in rows), warninglists, rejections)
 
 
+def current_input_revisions(session, ioc_ids) -> dict:
+    """Current `input_revision` of the given IOCs, read in the caller's transaction."""
+    ids = list(ioc_ids)
+    revisions = {}
+    for start in range(0, len(ids), 5000):
+        revisions.update(session.execute(select(IOCModel.id, IOCModel.input_revision)
+                                         .where(IOCModel.id.in_(ids[start:start + 5000]))).all())
+    return revisions
+
+
 def untrusted_sources(session, now, max_age) -> set[str]:
     """Sources whose last complete snapshot is missing, failed or older than `max_age`."""
     return {model.id for model in session.scalars(select(EndpointModel))

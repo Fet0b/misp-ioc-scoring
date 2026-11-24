@@ -266,8 +266,8 @@ pendência; falha ou revisão concorrente a mantém.
   - IOC com campo relevante alterado entra no conjunto de revisões, e campo irrelevante não entra;
   - troca de IOC marca o antigo e o novo;
   - remoção acima de `removal_ratio` recusa a reconciliação.
-- [ ] T055 [P] [US3] Criar `tests/unit/test_rescoring_candidates.py`: derivação de candidatos por `input_revision` diferente da revisão do último score válido; várias observações viram um só candidato; candidatura não muda o conjunto pontuado; gravar score não altera `input_revision`.
-- [ ] T056 [P] [US3] Criar `tests/integration/test_rescoring_candidates.py` em PostgreSQL: upsert de candidato, revisão que muda durante o cálculo mantém a pendência, falha de scoring mantém a pendência, e gravar score não remarca.
+- [X] T055 [P] [US3] Criar `tests/unit/test_rescoring_candidates.py`: derivação de candidatos por `input_revision` diferente da revisão do último score válido; várias observações viram um só candidato; candidatura não muda o conjunto pontuado; gravar score não altera `input_revision`.
+- [X] T056 [P] [US3] Criar `tests/integration/test_rescoring_candidates.py` em PostgreSQL: upsert de candidato, revisão que muda durante o cálculo mantém a pendência, falha de scoring mantém a pendência, e gravar score não remarca.
 
 ### Implementation for User Story 3
 
@@ -281,14 +281,14 @@ pendência; falha ou revisão concorrente a mantém.
 - [X] T059 [US3] (D8) Apagar `<pkg>/collection/application/reconcile.py` (a regra está agora em T057) e retirar do repositório os imports de `collection.application`. Mover `report_status` para dentro do caso de uso `<pkg>/collection/application/collect.py`, que o chama depois de `repository.apply` ou `repository.failed`.
 - [X] T060 [US3] (D8) Adicionar em `pyproject.toml` contratos import-linter `forbidden` de `misp_ioc_scoring.<módulo>.infrastructure` para `misp_ioc_scoring.<módulo>.application` em `collection`, `scoring` e `sharing`. Depois de T021 e T045, `scoring` já cumpre o contrato. Se `sharing.infrastructure.scheduling` ainda importar `sharing.application.sync_pihole` (resolvido em T070), registrar a exceção temporária com `ignore_imports` e removê-la em T070.
 - [X] T061 [US3] Completar o status da coleta em `<pkg>/collection/application/status.py` (resto da T037 antiga): o log estruturado de cada execução inclui contagem de rejeições por motivo e por origem, vinda de T058, sem credenciais, valores brutos ou payloads; acrescentar o caso em `tests/unit/test_collection_use_case.py`.
-- [ ] T062 [US3] Criar o mapeamento em `<pkg>/scoring/infrastructure/persistence/candidates.py` e a migration `migrations/versions/0009_rescoring_candidates.py` (schema `scoring`), com `candidato_rescoring`: `ioc_id` como chave primária, `pending`, `input_revision`, `reason`, `marked_at`, `last_attempt_at` e `last_error`, com um candidato por IOC lógico.
-- [ ] T063 [US3] Implementar `<pkg>/scoring/domain/rescoring.py`: um IOC é candidato quando o `input_revision` lido no snapshot difere da revisão do seu último `resultado_score` válido. A derivação nunca altera `input_revision`.
-- [ ] T064 [US3] Implementar `<pkg>/scoring/application/score_candidates.py` e chamá-lo de `run_carioca` (T044) depois do cálculo:
+- [X] T062 [US3] Criar o mapeamento em `<pkg>/scoring/infrastructure/persistence/candidates.py` e a migration `migrations/versions/0009_rescoring_candidates.py` (schema `scoring`), com `candidato_rescoring`: `ioc_id` como chave primária, `pending`, `input_revision`, `reason`, `marked_at`, `last_attempt_at` e `last_error`, com um candidato por IOC lógico.
+- [X] T063 [US3] Implementar `<pkg>/scoring/domain/rescoring.py`: um IOC é candidato quando o `input_revision` lido no snapshot difere da revisão do seu último `resultado_score` válido. A derivação nunca altera `input_revision`.
+- [X] T064 [US3] Implementar `<pkg>/scoring/application/score_candidates.py` e chamá-lo de `run_carioca` (T044) depois do cálculo:
   - registrar a revisão usada por IOC;
   - limpar `pending` só se o cálculo do IOC teve sucesso e `collection.api.current_input_revision` ainda for igual;
   - não selecionar quais IOCs são pontuados nem reaproveitar resultados.
-- [ ] T065 [US3] Preservar as pendências em falhas e em mudanças concorrentes de entrada, registrando `last_attempt_at` e `last_error` seguro, em `<pkg>/entrypoints/scoring_sharing.py` e `<pkg>/scoring/infrastructure/persistence/candidates.py`.
-- [ ] T066 [P] [US3] Adicionar a métrica de candidatos em `tools/metrics/candidates.py` (pendentes, idade do mais antigo, último erro) com teste em `tests/unit/test_candidate_metrics.py`.
+- [X] T065 [US3] Preservar as pendências em falhas e em mudanças concorrentes de entrada, registrando `last_attempt_at` e `last_error` seguro, em `<pkg>/entrypoints/scoring_sharing.py` e `<pkg>/scoring/infrastructure/persistence/candidates.py`.
+- [X] T066 [P] [US3] Adicionar a métrica de candidatos em `tools/metrics/candidates.py` (pendentes, idade do mais antigo, último erro) com teste em `tests/unit/test_candidate_metrics.py`.
 
 **Checkpoint**: US3 rastreia mudanças relevantes, e a coleta não tem mais regra de
 negócio no repositório.
