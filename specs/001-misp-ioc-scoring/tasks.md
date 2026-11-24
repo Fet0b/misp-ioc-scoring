@@ -77,18 +77,18 @@ de domínio que o CARIOCA reutiliza.
 
 ### D3: índice de warninglist
 
-- [ ] T012 [P] Criar testes em `tests/unit/test_warninglist_index.py` para `WarninglistIndex`:
+- [X] T012 [P] Criar testes em `tests/unit/test_warninglist_index.py` para `WarninglistIndex`:
   - modo `strict`: igualdade, hostname e subdomínio, host de URL casando com lista `hostname`, URL com IP casando com `cidr`; entrada não suportada na origem dá `None`;
   - modo `fr027`: as mesmas igualdades, e entrada não suportada é ignorada (`False`).
 
   Reaproveitar os casos de `tests/unit/test_blocking_warninglists.py` e `tests/unit/test_warninglist_matching.py` para garantir equivalência com `blocking_warninglist_membership` e `WarninglistEntry.matches`.
-- [ ] T013 Implementar `WarninglistIndex` em `<pkg>/collection/domain/warninglists.py`:
+- [X] T013 Implementar `WarninglistIndex` em `<pkg>/collection/domain/warninglists.py`:
   - construído uma vez por lista de entradas de uma origem;
   - estruturas: conjunto de valores exatos, conjunto de sufixos de hostname consultado por rótulos (do host completo ao domínio de segundo nível) e lista de redes `ip_network` por versão;
   - `match(kind, value, mode) -> bool | None`, com `mode` em (`"strict"`, `"fr027"`).
 
   `WarninglistEntry.matches` continua existindo e passa a ser usado só pelos testes de equivalência.
-- [ ] T014 Expor `warninglist_index(entries, mode)` em `<pkg>/collection/api.py`. Trocar o uso de `blocking_warninglist_membership` em `<pkg>/scoring/infrastructure/persistence/simple_blocking.py` por um índice por origem com `mode="strict"`. Remover `blocking_warninglist_membership` e `warninglist_membership`. T003 continua idêntico.
+- [X] T014 Expor `warninglist_index(entries, mode)` em `<pkg>/collection/api.py`. Trocar o uso de `blocking_warninglist_membership` em `<pkg>/scoring/infrastructure/persistence/simple_blocking.py` por um índice por origem com `mode="strict"`. Remover `blocking_warninglist_membership` e `warninglist_membership`. T003 continua idêntico.
 
 ### D4: decaimento, hostname e tipos
 

@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from sqlalchemy import JSON, bindparam, text
 
-from misp_ioc_scoring.collection.api import blocking_warninglist_membership, collection_snapshot
+from misp_ioc_scoring.collection.api import collection_snapshot
 from misp_ioc_scoring.shared.database import transaction
 from ...application.simple_blocking import evaluate
 
@@ -34,7 +34,7 @@ def run(engine, max_age_hours):
                 INSERT INTO scoring.execucao_bloqueio VALUES (:id, :as_of, NULL, 'default-v1', 'running')
             """), params)
             batch = []
-            for row in evaluate(snapshot, as_of, timedelta(hours=max_age_hours), blocking_warninglist_membership):
+            for row in evaluate(snapshot, as_of, timedelta(hours=max_age_hours)):
                 batch.append(dict(row, run_id=run_id))
                 if len(batch) == 1000:
                     session.execute(_UPSERT, batch)

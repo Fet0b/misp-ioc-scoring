@@ -8,7 +8,7 @@ from misp_ioc_scoring.collection.domain.observations import Observation
 from misp_ioc_scoring.collection.domain.event_aggregates import CATEGORIES
 from misp_ioc_scoring.collection.domain.rejections import IndicatorRejection
 from misp_ioc_scoring.collection.domain.snapshots import CollectionSnapshot, ObservationSnapshot, SourceSnapshot
-from misp_ioc_scoring.collection.domain.warninglists import WarninglistEntry
+from misp_ioc_scoring.collection.domain.warninglists import MODES, WarninglistEntry, WarninglistIndex
 from misp_ioc_scoring.collection.infrastructure.persistence.models import (
     EndpointModel, IOCModel, ObservationModel, RejectionModel, WarninglistModel,
 )
@@ -29,12 +29,6 @@ class CollectionReader:
     def current_input_revision(self, ioc_id: UUID) -> int | None:
         with Session(self._engine) as session:
             return session.scalar(select(IOCModel.input_revision).where(IOCModel.id == ioc_id))
-
-    def warninglist_membership(self, kind: str, normalized_value: str) -> bool:
-        with Session(self._engine) as session:
-            entries = session.scalars(select(WarninglistModel).where(WarninglistModel.supported.is_(True)))
-            return any(WarninglistEntry(e.source_instance_id, e.list_name, e.list_type,
-                                       e.normalized_value).matches(kind, normalized_value) for e in entries)
 
     def unsupported_warninglist_entries(self) -> tuple[WarninglistEntry, ...]:
         with Session(self._engine) as session:
@@ -95,26 +89,11 @@ def source_generations(session) -> dict[str, int]:
             session.execute(select(EndpointModel.id, EndpointModel.generation))}
 
 
-def blocking_warninglist_membership(entries, kind, value):
-    from ipaddress import ip_address
-    from urllib.parse import urlsplit
-
-    host = urlsplit(value).hostname if kind == "url" else value
-    host_kind = "domain"
-    try:
-        ip_address(host)
-        host_kind = "ip-dst"
-    except ValueError:
-        pass
-    uncertain = False
-    for item in entries:
-        entry = WarninglistEntry(item.source_instance_id, item.list_name,
-                                 item.list_type, item.normalized_value)
-        if not item.supported or not entry.supported:
-            uncertain = True
-        elif entry.matches(kind, value) or (kind == "url" and entry.matches(host_kind, host)):
-            return True
-    return None if uncertain else False
+def warninglist_index(entries, mode='strict') -> WarninglistIndex:
+    """Index of the warninglist entries of one source; `mode` is `strict` or `fr027`."""
+    if mode not in MODES:
+        raise ValueError('Unknown warninglist mode')
+    return WarninglistIndex(entries)
 
 
 def active_blocking_values(session):
