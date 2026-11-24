@@ -24,10 +24,10 @@ def test_collected_attribute_and_stale_decision(engine):
     run(engine, 48)
     with transaction(engine) as session:
         row = blocking_decision(session, "test", attribute_id=42)
-        assert row["block"] and row["attribute_uuid"] == attribute
+        assert row.block and row.attribute_uuid == attribute
     repository.failed(now, "test_failure")
     with transaction(engine) as session:
-        assert not blocking_decision(session, "test", attribute_uuid=attribute)["block"]
+        assert not blocking_decision(session, "test", attribute_uuid=attribute).block
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))
 
@@ -56,8 +56,8 @@ def test_effective_decision_expires_and_observer_cannot_write(engine):
     try:
         with transaction(observer) as session:
             row = blocking_decision(session, "test", attribute_uuid=attribute)
-            assert row["reason"] == "expired" and row["block"] is False
-            assert row["attribute_id"] is None
+            assert row.reason == "expired" and row.block is False
+            assert row.attribute_id is None
             assert blocking_decision(session, "other", attribute_uuid=attribute) is None
         with pytest.raises(DBAPIError), transaction(observer) as session:
             session.execute(text("DELETE FROM scoring.decisao_bloqueio"))

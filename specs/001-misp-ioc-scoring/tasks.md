@@ -106,13 +106,13 @@ de domínio que o CARIOCA reutiliza.
 
 ### D5: enums e Decisão de bloqueio
 
-- [ ] T019 Criar `<pkg>/scoring/domain/blocking.py` com:
+- [X] T019 Criar `<pkg>/scoring/domain/blocking.py` com:
   - `BlockingReason(StrEnum)` com exatamente `eligible`, `removed`, `type`, `to_ids`, `analysis`, `warninglist`, `expired`, `indeterminate`, `rejected`, `stale`;
   - `ScoreModel(StrEnum)` com `default` e `carioca`;
   - a dataclass congelada `BlockingDecision(source_instance_id, attribute_uuid, attribute_id, block, reason, as_of, expires_at, generation, evidence)`.
 
   `simple_blocking.decision` passa a devolver `BlockingReason`, e `evaluate` passa a devolver `BlockingDecision`. A persistência grava `reason.value`, então as colunas não mudam.
-- [ ] T020 Fazer `blocking_decision` e `effective_blocks` em `<pkg>/scoring/api.py` devolverem `BlockingDecision` em vez de `RowMapping`, com os mesmos campos e `rule_version`, e reexportar `ScoreModel`. Atualizar `<pkg>/sharing/domain/pihole_policy.py` para receber `ScoreModel`, e `<pkg>/sharing/infrastructure/scheduling/scheduler.py` para usar atributos em vez de chaves de dicionário. Em `tests/integration/test_simple_blocking.py` e `tests/integration/test_pihole_sharing.py`, trocar só a forma de acesso (`row["block"]` → `row.block`), sem mudar nenhum valor esperado. T003 continua idêntico.
+- [X] T020 Fazer `blocking_decision` e `effective_blocks` em `<pkg>/scoring/api.py` devolverem `BlockingDecision` em vez de `RowMapping`, com os mesmos campos e `rule_version`, e reexportar `ScoreModel`. Atualizar `<pkg>/sharing/domain/pihole_policy.py` para receber `ScoreModel`, e `<pkg>/sharing/infrastructure/scheduling/scheduler.py` para usar atributos em vez de chaves de dicionário. Em `tests/integration/test_simple_blocking.py` e `tests/integration/test_pihole_sharing.py`, trocar só a forma de acesso (`row["block"]` → `row.block`), sem mudar nenhum valor esperado. T003 continua idêntico.
 
 ### D6: caso de uso do bloqueio simples
 

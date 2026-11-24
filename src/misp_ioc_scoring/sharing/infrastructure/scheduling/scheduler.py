@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from misp_ioc_scoring.collection.api import active_blocking_values, dns_hostname, source_generations, untrusted_sources
-from misp_ioc_scoring.scoring.api import BLOCKABLE_TYPES, blocking_decision, effective_blocks
+from misp_ioc_scoring.scoring.api import BLOCKABLE_TYPES, BlockingReason, ScoreModel, blocking_decision, effective_blocks
 from misp_ioc_scoring.shared.database import transaction
 from ...application.sync_pihole import reconcile
 from ...domain.pihole_policy import eligible
@@ -22,7 +22,7 @@ def sync(engine, client, store, max_age_hours):
             unavailable = untrusted_sources(
                 snapshot, datetime.now(timezone.utc), timedelta(hours=max_age_hours))
             generations = source_generations(snapshot)
-            blocks = {(row["source_instance_id"], row["attribute_uuid"]): row
+            blocks = {(row.source_instance_id, row.attribute_uuid): row
                       for row in effective_blocks(snapshot)}
             desired = defaultdict(list)
             current_hosts = {}
@@ -30,13 +30,13 @@ def sync(engine, client, store, max_age_hours):
                 host = dns_hostname(kind, value)
                 current_hosts[(source, attribute)] = host
                 row = blocks.get((source, attribute))
-                if not eligible("default", block=row is not None, trusted=source not in unavailable):
+                if not eligible(ScoreModel.DEFAULT, block=row is not None, trusted=source not in unavailable):
                     continue
                 if host:
                     desired[host].append({"source": source, "attribute": str(attribute),
                                           "kind": kind, "category": category, "model": "default",
-                                          "as_of": row["as_of"].isoformat(),
-                                          "rule_version": row["rule_version"],
+                                          "as_of": row.as_of.isoformat(),
+                                          "rule_version": row.rule_version,
                                           "generation": generations[source]})
 
         def revalidate(operation, host, evidence):
@@ -47,15 +47,15 @@ def sync(engine, client, store, max_age_hours):
                 if operation == "add":
                     return all(
                         (row := blocking_decision(check, item["source"], attribute_uuid=UUID(item["attribute"])))
-                        and row["block"] and row["as_of"].isoformat() == item["as_of"]
+                        and row.block and row.as_of.isoformat() == item["as_of"]
                         for item in evidence)
                 if {item["source"] for item in evidence} & untrusted_sources(
                     check, before, timedelta(hours=max_age_hours)):
                     return False
                 for item in evidence:
                     row = blocking_decision(check, item["source"], attribute_uuid=UUID(item["attribute"]))
-                    if (row is None or row["reason"] in {"stale", "indeterminate"}
-                            or (row["block"] and current_hosts.get((item["source"], UUID(item["attribute"]))) == host)):
+                    if (row is None or row.reason in {BlockingReason.STALE, BlockingReason.INDETERMINATE}
+                            or (row.block and current_hosts.get((item["source"], UUID(item["attribute"]))) == host)):
                         return False
                 return True
 

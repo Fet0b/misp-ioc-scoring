@@ -2,6 +2,10 @@ import math
 
 
 def eligible(model, *, block, score=None, cutoff=None, trusted=True):
+    """Pi-hole eligibility for a `scoring.api.ScoreModel` (a StrEnum compared by value).
+
+    The domain does not import `scoring.api`, which carries persistence dependencies.
+    """
     if not trusted:
         return False
     if model == "default":

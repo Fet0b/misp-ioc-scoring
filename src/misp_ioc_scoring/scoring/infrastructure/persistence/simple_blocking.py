@@ -19,6 +19,13 @@ expires_at=excluded.expires_at, evidence=excluded.evidence
 """).bindparams(bindparam("evidence", type_=JSON))
 
 
+def _row(decision, run_id):
+    return dict(source_instance_id=decision.source_instance_id, attribute_uuid=decision.attribute_uuid,
+                attribute_id=decision.attribute_id, run_id=run_id, generation=decision.generation,
+                block=decision.block, reason=decision.reason.value, as_of=decision.as_of,
+                expires_at=decision.expires_at, evidence=decision.evidence.to_json())
+
+
 def run(engine, max_age_hours):
     run_id = uuid4()
     as_of = datetime.now(timezone.utc)
@@ -35,7 +42,7 @@ def run(engine, max_age_hours):
             """), params)
             batch = []
             for row in evaluate(snapshot, as_of, timedelta(hours=max_age_hours)):
-                batch.append(dict(row, run_id=run_id))
+                batch.append(_row(row, run_id))
                 if len(batch) == 1000:
                     session.execute(_UPSERT, batch)
                     batch.clear()

@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from misp_ioc_scoring.collection.api import warninglist_index
 
+from ..domain.blocking import BlockingDecision, BlockingEvidence, BlockingReason
 from ..domain.simple_blocking import decision
 
 
@@ -29,20 +30,23 @@ def evaluate(snapshot, as_of, max_age):
             if source.trusted(as_of, max_age):
                 warning = indexes.get(key[0], empty).match(
                     observation.misp_type, observation.normalized_value, "strict")
-        reason = "rejected" if rejection else decision(
+        reason = BlockingReason.REJECTED if rejection else decision(
             kind=observation.misp_type, to_ids=observation.to_ids,
             analysis=observation.event_analysis, removed=observation.removed_at is not None,
             warning=warning, timestamp=timestamp, as_of=as_of)
-        yield dict(source_instance_id=key[0], attribute_uuid=key[1],
-                   attribute_id=rejection.attribute_id if rejection else observation.attribute_id,
-                   generation=source.generation, block=reason == "eligible", reason=reason, as_of=as_of,
-                   expires_at=min(expires_at, timestamp + timedelta(days=365)) if timestamp else expires_at,
-                   evidence=dict(timestamp=timestamp.isoformat() if timestamp else None,
-                                 kind=observation.misp_type, warning=warning,
-                                 max_age_hours=max_age.total_seconds() / 3600,
-                                 to_ids=observation.to_ids, analysis=observation.event_analysis))
+        yield BlockingDecision(
+            source_instance_id=key[0], attribute_uuid=key[1],
+            attribute_id=rejection.attribute_id if rejection else observation.attribute_id,
+            block=reason == BlockingReason.ELIGIBLE, reason=reason, as_of=as_of,
+            expires_at=min(expires_at, timestamp + timedelta(days=365)) if timestamp else expires_at,
+            generation=source.generation,
+            evidence=BlockingEvidence(kind=observation.misp_type, max_age_hours=max_age.total_seconds() / 3600,
+                                      timestamp=timestamp, warning=warning, to_ids=observation.to_ids,
+                                      analysis=observation.event_analysis))
     for key, item in rejected.items():
-        yield dict(source_instance_id=key[0], attribute_uuid=key[1], attribute_id=item.attribute_id,
-                   generation=snapshot.sources[key[0]].generation, block=False, reason="rejected",
-                   as_of=as_of, expires_at=as_of, evidence=dict(kind=item.misp_type,
-                                                  max_age_hours=max_age.total_seconds() / 3600))
+        yield BlockingDecision(
+            source_instance_id=key[0], attribute_uuid=key[1], attribute_id=item.attribute_id,
+            block=False, reason=BlockingReason.REJECTED, as_of=as_of, expires_at=as_of,
+            generation=snapshot.sources[key[0]].generation,
+            evidence=BlockingEvidence(kind=item.misp_type, max_age_hours=max_age.total_seconds() / 3600,
+                                      rejected=True))
