@@ -1,0 +1,7 @@
+{
+  "local": {"base_url": "https://misp-local", "credential_secret_ref": "env:E2E_LOCAL_KEY"},
+  "peers": [
+    {"peer_id": "e2e-peer", "base_url": "https://misp-peer", "credential_secret_ref": "env:E2E_PEER_KEY",
+     "minimum_priority_score": 0, "distribution": "3"}
+  ]
+}
