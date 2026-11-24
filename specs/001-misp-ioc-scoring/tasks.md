@@ -92,17 +92,17 @@ de domínio que o CARIOCA reutiliza.
 
 ### D4: decaimento, hostname e tipos
 
-- [ ] T015 [P] Criar testes em `tests/unit/test_decay.py` para `DecayGroup(name, D, T).freshness(t_days)`:
+- [X] T015 [P] Criar testes em `tests/unit/test_decay.py` para `DecayGroup(name, D, T).freshness(t_days)`:
   - `t` negativo dá `None` e `t >= T` dá `0`;
   - valores do Notion: domain `t=158,2835` dá `69,687`; ip `t=3` dá `43,16`; hash `t=30` dá `29,29`;
   - igualdade com `scoring/domain/simple_blocking.freshness` atual para `t` em 0, 1, 364,9 e 365.
-- [ ] T016 Criar `<pkg>/scoring/domain/decay.py` com `DecayGroup` e as constantes `DOMAIN = DecayGroup("domain", 0.7, 365)`, `IP = DecayGroup("ip", 1.5, 7)` e `HASH = DecayGroup("hash", 2, 60)`. Reescrever `freshness` em `<pkg>/scoring/domain/simple_blocking.py` para usar `DOMAIN` (URL usa o mesmo grupo no bloqueio simples, conforme a 002).
-- [ ] T017 Mover a validação de hostname DNS para uma função única `dns_hostname(kind, value) -> str | None` em `<pkg>/collection/domain/normalization.py`, reaproveitando `_domain`:
+- [X] T016 Criar `<pkg>/scoring/domain/decay.py` com `DecayGroup` e as constantes `DOMAIN = DecayGroup("domain", 0.7, 365)`, `IP = DecayGroup("ip", 1.5, 7)` e `HASH = DecayGroup("hash", 2, 60)`. Reescrever `freshness` em `<pkg>/scoring/domain/simple_blocking.py` para usar `DOMAIN` (URL usa o mesmo grupo no bloqueio simples, conforme a 002).
+- [X] T017 Mover a validação de hostname DNS para uma função única `dns_hostname(kind, value) -> str | None` em `<pkg>/collection/domain/normalization.py`, reaproveitando `_domain`:
   - `domain` valida o próprio valor; `url` extrai o host com os esquemas `http`, `https` e `ftp`, sem `userinfo`;
   - IP literal, TLD numérico e host de um rótulo só dão `None`.
 
   Expor a função em `<pkg>/collection/api.py`. Apagar `<pkg>/sharing/domain/pihole_hostname.py`, trocar o import em `<pkg>/sharing/infrastructure/scheduling/scheduler.py` e mover `test_dns_hostname` de `tests/unit/test_pihole_policy.py` para `tests/unit/test_normalization.py`, mantendo os mesmos parâmetros.
-- [ ] T018 [P] Criar constantes nomeadas de tipos em `<pkg>/collection/domain/indicators.py`: `DOMAIN_TYPES = frozenset({"domain", "hostname"})`, `IP_TYPES = frozenset({"ip-src", "ip-dst"})`, `HASH_TYPES` e `URL_TYPES = frozenset({"url"})`. Usá-las em `normalization.py` e `warninglists.py`. Em `<pkg>/scoring/domain/simple_blocking.py`, criar `BLOCKABLE_TYPES = frozenset({"domain", "url"})`. Fazer `active_blocking_values` em `<pkg>/collection/api.py` receber os tipos como parâmetro em vez de fixá-los.
+- [X] T018 [P] Criar constantes nomeadas de tipos em `<pkg>/collection/domain/indicators.py`: `DOMAIN_TYPES = frozenset({"domain", "hostname"})`, `IP_TYPES = frozenset({"ip-src", "ip-dst"})`, `HASH_TYPES` e `URL_TYPES = frozenset({"url"})`. Usá-las em `normalization.py` e `warninglists.py`. Em `<pkg>/scoring/domain/simple_blocking.py`, criar `BLOCKABLE_TYPES = frozenset({"domain", "url"})`. Fazer `active_blocking_values` em `<pkg>/collection/api.py` receber os tipos como parâmetro em vez de fixá-los.
 
 ### D5: enums e Decisão de bloqueio
 

@@ -1,3 +1,4 @@
+from misp_ioc_scoring.scoring.domain.simple_blocking import BLOCKABLE_TYPES
 
 
 def blocking_decision(session, source_instance_id, *, attribute_uuid=None, attribute_id=None):

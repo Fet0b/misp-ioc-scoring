@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from urllib.parse import urlsplit
 
+from .indicators import DOMAIN_TYPES, IP_TYPES
+
 SUPPORTED_LIST_TYPES = frozenset({'string', 'cidr', 'hostname'})
-_DOMAIN_KINDS = frozenset({'domain', 'hostname'})
-_IP_KINDS = frozenset({'ip-src', 'ip-dst'})
 MODES = ('strict', 'fr027')
 
 
@@ -25,9 +25,9 @@ class WarninglistEntry:
         if self.list_type == 'string':
             return value == self.normalized_value
         if self.list_type == 'hostname':
-            return kind in _DOMAIN_KINDS and (
+            return kind in DOMAIN_TYPES and (
                 value == self.normalized_value or value.endswith('.' + self.normalized_value))
-        if kind not in _IP_KINDS:
+        if kind not in IP_TYPES:
             return False
         try:
             return ip_address(value) in ip_network(self.normalized_value)
@@ -67,10 +67,10 @@ class WarninglistIndex:
     def _matches(self, kind, value) -> bool:
         if value in self._exact:
             return True
-        if kind in _DOMAIN_KINDS:
+        if kind in DOMAIN_TYPES:
             labels = value.split('.')
             return any('.'.join(labels[i:]) in self._hostnames for i in range(len(labels)))
-        if kind in _IP_KINDS and self._networks:
+        if kind in IP_TYPES and self._networks:
             try:
                 address = ip_address(value)
             except ValueError:

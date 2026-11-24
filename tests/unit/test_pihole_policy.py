@@ -1,19 +1,7 @@
 import pytest
 
-from misp_ioc_scoring.sharing.domain.pihole_hostname import hostname
 from misp_ioc_scoring.sharing.domain.pihole_policy import eligible
 from misp_ioc_scoring.sharing.application.sync_pihole import reconcile
-
-
-@pytest.mark.parametrize("kind,value,expected", [
-    ("url", "https://Sub.Example.org:8443/path?token=x", "sub.example.org"),
-    ("domain", "exämple.org.", "xn--exmple-cua.org"),
-    ("url", "https://127.0.0.1/path", None),
-    ("url", "https://[bad", None),
-    ("link", "https://example.org", None),
-])
-def test_dns_hostname(kind, value, expected):
-    assert hostname(kind, value) == expected
 
 
 def test_score_cutoff():

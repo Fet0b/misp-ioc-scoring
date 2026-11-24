@@ -6,6 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from misp_ioc_scoring.collection.domain.observations import Observation
 from misp_ioc_scoring.collection.domain.event_aggregates import CATEGORIES
+from misp_ioc_scoring.collection.domain.indicators import DOMAIN_TYPES, HASH_TYPES, IP_TYPES, URL_TYPES
+from misp_ioc_scoring.collection.domain.normalization import dns_hostname
 from misp_ioc_scoring.collection.domain.rejections import IndicatorRejection
 from misp_ioc_scoring.collection.domain.snapshots import CollectionSnapshot, ObservationSnapshot, SourceSnapshot
 from misp_ioc_scoring.collection.domain.warninglists import MODES, WarninglistEntry, WarninglistIndex
@@ -96,11 +98,12 @@ def warninglist_index(entries, mode='strict') -> WarninglistIndex:
     return WarninglistIndex(entries)
 
 
-def active_blocking_values(session):
-    return session.execute(select(
+def active_blocking_values(session, types) -> list[tuple]:
+    """(source, attribute UUID, type, category, normalized value) of active observations of `types`."""
+    return [tuple(row) for row in session.execute(select(
         ObservationModel.source_instance_id, ObservationModel.attribute_uuid,
         ObservationModel.misp_type, ObservationModel.category, IOCModel.normalized_value,
     ).join(IOCModel, IOCModel.id == ObservationModel.ioc_id).where(
         ObservationModel.removed_at.is_(None),
-        ObservationModel.misp_type.in_(("domain", "url")),
-    )).all()
+        ObservationModel.misp_type.in_(tuple(types)),
+    ))]

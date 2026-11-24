@@ -1,5 +1,5 @@
 import pytest
-from misp_ioc_scoring.collection.domain.normalization import normalize, IndicatorRejected
+from misp_ioc_scoring.collection.domain.normalization import dns_hostname, normalize, IndicatorRejected
 
 
 @pytest.mark.parametrize('kind,raw,expected', [
@@ -25,3 +25,14 @@ def test_rejections_do_not_echo_raw_values(kind, raw, reason):
         normalize(kind, raw)
     assert error.value.reason == reason
     assert raw not in str(error.value)
+
+
+@pytest.mark.parametrize("kind,value,expected", [
+    ("url", "https://Sub.Example.org:8443/path?token=x", "sub.example.org"),
+    ("domain", "exämple.org.", "xn--exmple-cua.org"),
+    ("url", "https://127.0.0.1/path", None),
+    ("url", "https://[bad", None),
+    ("link", "https://example.org", None),
+])
+def test_dns_hostname(kind, value, expected):
+    assert dns_hostname(kind, value) == expected

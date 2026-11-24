@@ -5,11 +5,10 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from misp_ioc_scoring.collection.api import active_blocking_values, source_generations, untrusted_sources
-from misp_ioc_scoring.scoring.api import blocking_decision, effective_blocks
+from misp_ioc_scoring.collection.api import active_blocking_values, dns_hostname, source_generations, untrusted_sources
+from misp_ioc_scoring.scoring.api import BLOCKABLE_TYPES, blocking_decision, effective_blocks
 from misp_ioc_scoring.shared.database import transaction
 from ...application.sync_pihole import reconcile
-from ...domain.pihole_hostname import hostname
 from ...domain.pihole_policy import eligible
 
 
@@ -27,8 +26,8 @@ def sync(engine, client, store, max_age_hours):
                       for row in effective_blocks(snapshot)}
             desired = defaultdict(list)
             current_hosts = {}
-            for source, attribute, kind, category, value in active_blocking_values(snapshot):
-                host = hostname(kind, value)
+            for source, attribute, kind, category, value in active_blocking_values(snapshot, BLOCKABLE_TYPES):
+                host = dns_hostname(kind, value)
                 current_hosts[(source, attribute)] = host
                 row = blocks.get((source, attribute))
                 if not eligible("default", block=row is not None, trusted=source not in unavailable):
