@@ -114,3 +114,65 @@ o volume `postgres-data` preserva os dados. Para a integração automatizada, de
 `TEST_DATABASE_URL` para uma instância PostgreSQL separada e descartável, com nome de
 banco terminado em `_test`; os testes criam e removem schemas e papéis nesse ambiente.
 Não usar o cluster de produção para os testes.
+
+
+## Retomada de US2–US4 (revisão 2026-11-24)
+
+Estado: coleta, bloqueio simples e Pi-hole implementados; CARIOCA, candidatos e peers
+MISP em implementação. Decisões em [plan.md](./plan.md#revisão-2026-11-24-retomada-de-us2-us4).
+
+### Testes hoje
+
+```bash
+uv run --extra dev pytest -q tests/unit tests/contract tests/architecture
+TEST_DATABASE_URL=postgresql+psycopg://...@localhost/misp_test uv run --extra dev pytest -q tests/integration
+```
+
+Até a correção de `pythonpath` no `pyproject.toml`, prefixar com `PYTHONPATH=.`. Sem
+`TEST_DATABASE_URL`, os testes de integração são pulados.
+
+### Cenários a validar quando US2 estiver pronta
+
+1. **Casos de referência, nível 1 (fórmulas)**: com σ dado como entrada, os testes
+   unitários reproduzem `hotels-stays55501.com` (CADE 6,5218; CADE' 19,544; E' 60,532;
+   A' 66,984; P 75,838). Nível 2 (SC-015): com o σ aprovado, os mesmos casos batem com
+   os valores de `docs/sigma-estimator-evaluation.md`. Também reproduzem a
+   tabela de fontes do Notion (CIRCL S' 100; CthulhuSPRL.be 59,92; Krawczyk 47,05), com
+   `as_of` fixo.
+2. **Configuração não aprovada**: `SCORING_CARIOCA_ENABLED=true` com
+   `approved: false` impede o início do serviço com erro explícito.
+3. **Execução diária**: com configuração aprovada, a execução registra `as_of`, população
+   válida, exclusões por motivo (incluindo `url` como tipo sem grupo e observações
+   `to_ids=false`), rank e top-N por IOC lógico e a observação vencedora.
+4. **Independência do filtro de coleta**: coletar com `MISP_TO_IDS_ONLY=true` e depois
+   `false` sobre os mesmos dados dá os mesmos scores.
+5. **Distribuição a peers (US4)**: IOC com uma observação `0` e outra `3` é enviado com
+   distribuição `3`; com observações `1` e `3`, sai com `1`; só com `0` ou evento não
+   publicado, fica inelegível com `distribution_not_allowed`.
+6. **Pi-hole `carioca`**: com `PIHOLE_SCORE_MODEL=carioca` e corte definido, só domínios e
+   hostnames com score vigente acima do corte são enviados; sem execução vigente nada é
+   enviado.
+7. **Benchmark**: `uv run --extra dev pytest -q tests/benchmark` conclui o recálculo de
+   cerca de 270 mil IOCs em até 1 hora (SC-011).
+
+Os cenários de candidatos (US3) e de peers MISP (US4) continuam os itens 3, 5, 9 e 10 da
+lista de verificações acima.
+
+### Validação do ajuste de DDD
+
+Cada etapa D1–D10 do [plano](./plan.md#ajuste-de-ddd-correção-do-código-existente) é
+validada antes do commit:
+
+1. **Caracterização**: `uv run --extra dev pytest -q tests/integration/test_blocking_characterization.py`
+   com `TEST_DATABASE_URL` definido. Esperado: as decisões de bloqueio e o conjunto
+   desejado do Pi-hole são idênticos ao resultado gravado antes de D1.
+2. **Suíte existente**: `uv run --extra dev pytest -q` (com `TEST_DATABASE_URL`).
+   Esperado: todos os testes que passavam continuam passando, sem mudar asserções.
+3. **Fronteiras**: `uv run --extra dev lint-imports`. Esperado: passam também os
+   contratos novos (`infrastructure ↛ application` e domínio sem SQLAlchemy, PyMISP
+   ou Pydantic).
+4. **Tipos da API**: `uv run --extra dev pytest -q tests/architecture/test_public_api_types.py`.
+   Esperado: nenhuma função pública de `collection.api` ou `scoring.api` devolve
+   modelo ORM.
+5. **Domínio sem banco**: os testes de `reconcile_snapshot`, `WarninglistIndex`,
+   `DecayGroup` e `ManagedEntry.is_owned_by` rodam em `tests/unit` sem PostgreSQL.

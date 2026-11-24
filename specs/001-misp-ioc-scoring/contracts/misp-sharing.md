@@ -54,3 +54,33 @@ de replicação nem substituir os controles de distribuição do MISP.
 
 - [MISP sharing guide](https://www.circl.lu/doc/misp/sharing/)
 - [MISP automation guide](https://www.circl.lu/doc/misp/automation/)
+
+## Revisão 2026-11-24
+
+- **Ativação**: `SHARING_MISP_ENABLED=true` (padrão `false`, independente do Pi-hole).
+  Exige `SCORING_CARIOCA_ENABLED=true`, configuração CARIOCA aprovada e peers válidos.
+  Sem isso, a inicialização falha com erro explícito.
+- **Leitura de scores**: somente por [scoring-api.md](./scoring-api.md)
+  (`current_carioca_run` e `carioca_scores` com `top_n_only=True` e o mínimo do peer).
+- **Evento de saída por peer**: o push nativo sincroniza eventos publicados. O adaptador
+  mantém, na instância MISP local de saída, um evento por peer (`outbound_event_uuid`),
+  com a distribuição máxima da política do peer. Cada IOC elegível vira um atributo
+  com UUID determinístico (UUID v5 de `peer_id` + `ioc_id`), tipo e valor normalizado
+  do IOC, `to_ids=true` e a **distribuição da observação que tornou o envio
+  permitido** (e o sharing group dela, se for `4`). Como o MISP aplica o menor valor
+  entre evento e atributo, o atributo nunca sai mais amplo que a origem. IOCs que deixam de ser elegíveis têm o atributo
+  removido (soft delete) antes da próxima publicação.
+- **Confirmação**: publicar o evento só registra `requested`. `confirmed` exige ler o
+  atributo no peer pelo UUID. Em timeout, o estado vira `ambiguous` e a próxima rodada
+  consulta o peer antes de repetir.
+- **Regra de distribuição** (FR-016, clarificação 2026-11-24): basta uma observação
+  ativa, de evento publicado, cuja distribuição efetiva seja `1`, `2` ou `3`, ou `4`
+  com o servidor do peer no sharing group. Entre as que alcançam, vale a mais
+  restritiva. Sem nenhuma, o IOC fica inelegível com motivo `distribution_not_allowed`.
+  A regra é reavaliada antes de cada nova tentativa; se a distribuição permitida
+  diminuir, o atributo de saída é atualizado ou removido antes da publicação.
+- **Retentativas**: quantidade e backoff vêm de variáveis de ambiente
+  (`SHARING_RETRY_ATTEMPTS`, `SHARING_RETRY_BACKOFF_SECONDS`) e são reavaliados contra a
+  elegibilidade atual a cada tentativa.
+- **Pendente de validação**: o desenho precisa de teste contra um MISP isolado com peer
+  de sync antes de produção. A conta de sync e as regras de push ficam no MISP.

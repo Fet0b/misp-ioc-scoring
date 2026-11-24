@@ -1,312 +1,496 @@
-# Tasks: Plataforma de Scoring e Compartilhamento de IOCs
+# Tasks: Plataforma de Scoring e Compartilhamento de IOCs (retomada US2–US4 e ajuste de DDD)
 
-**Input**: Design documents from `specs/001-misp-ioc-scoring/`
+**Input**: Design documents from `specs/001-misp-ioc-scoring/` (revisão 2026-11-24)
 
-**Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`,
-`contracts/`, and `quickstart.md`
+**Prerequisites**: `plan.md` (seções "Revisão 2026-11-24" e "Ajuste de DDD"), `spec.md`,
+`research.md`, `data-model.md`, `contracts/` e `quickstart.md`
 
-**Organization**: Tasks are grouped by user story to enable independently verifiable
-increments. Automated tests are included because the project constitution requires
-tests for affected behavior.
+**Organization**: tarefas agrupadas por história de usuário. Os testes estão
+incluídos porque a Constituição exige testes para todo comportamento afetado.
+
+**Regenerado em 2026-11-24.** Esta lista substitui a de 95 tarefas (versão anterior no
+commit `082f3b2`). O que já estava pronto não é repetido aqui:
+
+- **Setup, fundação e US1 (coleta)**: pacote, Docker/Compose, configuração, banco,
+  migrations `0000`–`0003`, papéis, logging, glossário, cliente MISP, import-linter,
+  normalização, observações, rejeições, warninglists, reconciliação, coleta,
+  scheduler por endpoint, `collection/api.py` e exportação de observabilidade.
+- **Feature 002**: bloqueio simples, Pi-hole, flags e migrations `0004`–`0007`.
+
+Pendências de US1 que ficaram incompletas foram absorvidas aqui: T037 antiga →
+T061; ajuste de `input_revision` → T005.
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel with other marked tasks in the same ready phase because
-  they modify different files and have no unresolved dependencies.
-- **[Story]**: User-story label linked to `spec.md`.
-- Every task names concrete file paths.
-
-## Path Conventions
-
-One Python package (modular monolith) at `src/misp_ioc_scoring/` with modules
-`shared/`, `collection/`, `scoring/`, `sharing/` and container composition roots in
-`entrypoints/`; migrations under `migrations/`; tests under `tests/`. In this file
-`<pkg>` means `src/misp_ioc_scoring`. Module boundaries and table ownership are defined
-in `plan.md` ("Arquitetura Modular"); each module writes only its own PostgreSQL schema
-(`collection`, `scoring`, `sharing`) and reads other modules only through `api.py`.
+- **[P]**: pode rodar em paralelo (arquivos diferentes, sem dependência pendente).
+- **[Story]**: história de `spec.md` (US2 score, US3 candidatos, US4 peers MISP).
+- `<pkg>` = `src/misp_ioc_scoring`.
+- **Regra das etapas D1–D10 (ajuste de DDD)**: refatoração sem mudança de
+  comportamento. Os testes existentes continuam passando sem mudar nenhum **valor
+  esperado**; só muda a forma de acesso quando o tipo devolvido muda (por exemplo
+  `row["block"]` → `row.block` em T020). O teste de caracterização (T003) continua
+  idêntico. Os casos de uso são chamados pelos entrypoints; a infraestrutura só
+  implementa portas e nunca importa `application`. Um commit por etapa, com a suíte completa
+  em PostgreSQL (`TEST_DATABASE_URL`) rodada antes.
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup
 
-**Purpose**: Initialize the Python project and three-container development environment.
+**Purpose**: corrigir a execução dos testes e preparar a verificação automática.
 
-- [X] T001 Create `pyproject.toml` for Python 3.12 with runtime dependencies PyMISP, SQLAlchemy 2.x, Alembic, Pydantic, APScheduler 3.x, openpyxl (Excel export, FR-028) and development dependencies pytest and import-linter.
-- [X] T002 [P] Create `Dockerfile` using a non-root runtime user and separate commands for `<pkg>/entrypoints/collector.py` and `<pkg>/entrypoints/scoring_sharing.py`.
-- [X] T003 [P] Create `compose.yaml` with PostgreSQL, collector/normalizer and scoring/sharing services using distinct database roles (see T008), persistent database volume, health check, service dependency conditions, and per-service `env_file`/environment (peer settings only for the scoring/sharing service), plus a one-off `tools` service (compose profile `tools`) that runs `tools/export_observability.py` with the read-only `observer` role and a mounted output directory; there is no CLI, API or UI. Later tasks (T008, T005, T080) extend this file.
-- [X] T004 [P] Create `.dockerignore` and `.env.example` with configuration keys (including `MISP_TO_IDS_ONLY`, `RECONCILE_MAX_REMOVAL_RATIO`, `CARIOCA_TOP_N`, all time/frequency settings (per-endpoint collection cadence, daily scoring schedule, overlap windows, retry/backoff, `SCORE_MAX_AGE_HOURS` with default 48), the observability export settings (`EXPORT_OUTPUT_DIR`, `EXPORT_MAX_ROWS_PER_SHEET`), and the peer settings: peers, per-peer minimum score, secret references); `EXPORT_MAX_ROWS_PER_SHEET` defaults to 1000000 with a ceiling of 1048575. Later tasks (T008, T005, T080) extend this file. but no credentials, secret values, or implicit defaults for unapproved CARIOCA parameters.
+- [ ] T001 Adicionar `[tool.pytest.ini_options]` com `pythonpath = ["."]` e `testpaths = ["tests"]` em `pyproject.toml`, para `tests/unit/test_observability_export.py` importar `tools` sem `PYTHONPATH=.`; confirmar com `uv run --extra dev pytest -q tests/unit tests/contract tests/architecture` (77 testes passando).
+- [ ] T002 [P] Adicionar em `pyproject.toml` contratos import-linter do tipo `forbidden` que proíbem `misp_ioc_scoring.collection.domain`, `misp_ioc_scoring.scoring.domain` e `misp_ioc_scoring.sharing.domain` de importar `sqlalchemy`, `pymisp` e `pydantic`; rodar `uv run --extra dev lint-imports` (o domínio já cumpre, então o contrato só impede regressão).
 
 ---
 
-## Phase 2: Foundational (Blocking Prerequisites)
+## Phase 2: Foundational (pré-requisitos e DDD de base D1–D6)
 
-**Purpose**: Establish shared configuration, persistence, migration, error, module-boundary, and domain-language foundations required by every story.
+**Purpose**: rede de segurança da refatoração, ajuste de `input_revision` e as peças
+de domínio que o CARIOCA reutiliza.
 
-**⚠️ CRITICAL**: No user-story work can begin until this phase is complete.
+**⚠️ CRITICAL**: US2 não começa antes do fim desta fase.
 
-- [X] T005 Implement validated environment/configuration loading in `<pkg>/shared/configuration.py`, keeping credentials as secret references, loading every operational time and frequency (per-endpoint collection cadence, daily scoring schedule, overlap windows, retry/backoff, `SCORE_MAX_AGE_HOURS` default 48, sharing run frequency and retries, `EXPORT_MAX_ROWS_PER_SHEET` default 1000000 and rejected above 1048575) from environment variables validated at startup, and rejecting missing or invalid required settings with an explicit error; changes apply only after restart (FR-029).
-- [X] T006 Implement SQLAlchemy engine, session lifecycle, declarative base, and transaction helpers in `<pkg>/shared/database.py`, with a per-module schema naming helper for `collection`, `scoring` and `sharing`.
-- [X] T007 Initialize Alembic in `alembic.ini` and `migrations/env.py`, wiring the database URL from validated configuration, and add `migrations/versions/0000_schemas.py` creating the `collection`, `scoring` and `sharing` schemas.
-- [X] T008 Add `migrations/versions/0001_module_roles.py` creating the collector and scoring/sharing database roles with schema-level grants and `ALTER DEFAULT PRIVILEGES` so later tables inherit them (collector: write `collection` only; scoring/sharing: write `scoring` and `sharing`, read-only `collection`; `observer`: read-only on all three schemas, used only by `tools/export_observability.py`), and wire the roles into `compose.yaml` and `.env.example`; role passwords are never in migration files: the migration reads them from secret references resolved by `<pkg>/shared/configuration.py` at run time.
-- [X] T009 [P] Implement structured logging and shared operational error types in `<pkg>/shared/logging.py` and `<pkg>/shared/errors.py`; ensure secrets and raw sensitive payloads are not emitted.
-- [X] T010 [P] Create the canonical domain glossary in `docs/domain-glossary.md` using the spec terms IOC, Observação de origem, Resultado de score, Candidato a re-scoring (rastreabilidade), Endpoint de coleta, Peer MISP, Política de compartilhamento, plus Configuração CARIOCA, População válida, Exclusão de score, Estatísticas de população, Execução vigente, Rejeição de indicador, `as_of` and Warninglist, and list avoided synonyms for each term.
-- [X] T011 [P] Implement the shared PyMISP client wrapper in `<pkg>/shared/misp/client.py` (authentication from secret references, timeouts, version detection, no credential logging), used by `collection` and `sharing`.
-- [X] T012 Create the module skeleton under `<pkg>/` (`shared/`, `collection/`, `scoring/`, `sharing/`, `entrypoints/` with `__init__.py`, and empty `api.py` in `collection/` and `scoring/`).
-- [X] T013 Configure import-linter in `pyproject.toml` with the contracts from `plan.md` (layers inside each module, `collection` ← `scoring` ← `sharing` independence, cross-module imports only through `api.py`, `entrypoints.collector` and `entrypoints.scoring_sharing` independent, and `tools` forbidden from importing `collection`, `scoring` or `sharing`) and add `tests/architecture/test_module_boundaries.py` that runs it.
-- [X] T014 [P] Add `tests/architecture/test_table_ownership.py` asserting every mapped table lives in the schema of the module that maps it (`collection`, `scoring`, `sharing`), and failing if a column whose name contains `credential`, `secret`, `token` or `password` lacks the PostgreSQL column comment `secret`.
-- [X] T015 Add foundational unit tests for required-setting validation, secret redaction, and domain error behavior in `tests/unit/test_configuration.py` and `tests/unit/test_errors.py`.
+### Rede de segurança e pré-requisitos
 
-**Checkpoint**: Project environment, shared database access, migrations, database roles, safe logging, canonical vocabulary, and enforced module boundaries are ready.
+- [ ] T003 Criar o teste de caracterização `tests/integration/test_blocking_characterization.py`. Monta uma fixture fixa com 2 endpoints (um confiável e um com coleta `failed`), observações `domain` e `url` cobrindo todos os motivos (`eligible`, `removed`, `type`, `to_ids`, `analysis`, `warninglist`, `expired`, `indeterminate`, `rejected`), warninglists (`string`, `hostname`, `cidr` e uma `regex`) e rejeições. Congela o relógio com `monkeypatch` do atributo `datetime` em `<pkg>/scoring/infrastructure/persistence/simple_blocking.py` e em `<pkg>/sharing/infrastructure/scheduling/scheduler.py` para um `as_of` fixo. Executa `simple_blocking.run` e o cálculo do conjunto desejado do Pi-hole (com um `PiHole` falso que registra os hosts). Compara decisões `(source_instance_id, attribute_uuid, block, reason, expires_at)` e hosts desejados com o golden `tests/integration/fixtures/blocking_characterization.json`, gerado na primeira execução com a opção `--update-golden` (registrada via `pytest_addoption` em `tests/integration/conftest.py`) e versionado. Deve passar antes de T009.
+- [ ] T004 [P] Acrescentar casos em `tests/unit/test_input_revision.py`: mudar `published` incrementa a revisão; mudar `tags`, `collected_at`, `distribution` ou `raw_value` com o mesmo valor normalizado não incrementa.
+- [ ] T005 Incluir `'published'` em `RELEVANT_FIELDS` em `<pkg>/collection/domain/input_revision.py`, porque `first_publications` só considera observações publicadas (FeedRank), e atualizar a docstring para listar o motivo de cada campo (`event_uuid` agrupa o CADE; `source_created_at` ordena o FeedRank; `source_modified_at` é o tempo do frescor).
+
+### D1–D2: tipos de domínio na API da coleta e confiança da origem
+
+- [ ] T006 [P] Criar testes unitários em `tests/unit/test_source_snapshot.py` para `SourceSnapshot.trusted(now, max_age)`: falso com `generation == 0`, com `status != "completed"`, com `last_success_at` nulo e com `last_success_at <= now - max_age`; verdadeiro caso contrário. As fronteiras devem bater com o SQL atual de `unavailable_blocking_sources` em `<pkg>/collection/api.py`.
+- [ ] T007 Criar `<pkg>/collection/domain/snapshots.py` com as dataclasses congeladas de `data-model.md` ("Tipos de domínio do ajuste de DDD"):
+  - `SourceSnapshot(source_instance_id, generation, status, last_success_at)` com `trusted(now, max_age)`;
+  - `ObservationSnapshot` (campos de `Observation` mais `ioc_id`, `normalized_value`, `input_revision`);
+  - `CollectionSnapshot(sources, observations, warninglists, rejections)`.
+
+  `IndicatorRejection` em `<pkg>/collection/domain/rejections.py` ganha `attribute_id: int | None = None`, que `scoring` já lê.
+- [ ] T008 Em `<pkg>/collection/api.py`:
+  - implementar `collection_snapshot(session) -> CollectionSnapshot`, convertendo os modelos ORM em tipos de domínio dentro da própria função (observações ativas e removidas, como `blocking_snapshot` faz hoje);
+  - implementar `untrusted_sources(session, now, max_age)` usando `SourceSnapshot.trusted`;
+  - implementar `source_generations(session)`;
+  - manter `blocking_snapshot`, `unavailable_blocking_sources` e `blocking_generations` como aliases finos até T011 ([contracts/collection-api.md](./contracts/collection-api.md), "Transição").
+- [ ] T009 Adaptar `<pkg>/scoring/application/simple_blocking.py::evaluate` e `<pkg>/scoring/infrastructure/persistence/simple_blocking.py` para consumir `CollectionSnapshot`. Usar `source.trusted(as_of, max_age)` no lugar da checagem manual de `generation`, `status` e `last_success_at` (D2). Nenhum atributo de modelo ORM pode ser lido fora de `collection`. T003 e `tests/integration/test_simple_blocking.py` devem continuar idênticos.
+- [ ] T010 Adaptar `<pkg>/sharing/infrastructure/scheduling/scheduler.py` para `untrusted_sources` e `source_generations`; rodar T003 e `tests/integration/test_pihole_sharing.py`.
+- [ ] T011 Remover os aliases `blocking_snapshot`, `unavailable_blocking_sources` e `blocking_generations` de `<pkg>/collection/api.py` e atualizar os testes que os chamam (`tests/integration/test_blocking_collection_snapshot.py`).
+
+### D3: índice de warninglist
+
+- [ ] T012 [P] Criar testes em `tests/unit/test_warninglist_index.py` para `WarninglistIndex`:
+  - modo `strict`: igualdade, hostname e subdomínio, host de URL casando com lista `hostname`, URL com IP casando com `cidr`; entrada não suportada na origem dá `None`;
+  - modo `fr027`: as mesmas igualdades, e entrada não suportada é ignorada (`False`).
+
+  Reaproveitar os casos de `tests/unit/test_blocking_warninglists.py` e `tests/unit/test_warninglist_matching.py` para garantir equivalência com `blocking_warninglist_membership` e `WarninglistEntry.matches`.
+- [ ] T013 Implementar `WarninglistIndex` em `<pkg>/collection/domain/warninglists.py`:
+  - construído uma vez por lista de entradas de uma origem;
+  - estruturas: conjunto de valores exatos, conjunto de sufixos de hostname consultado por rótulos (do host completo ao domínio de segundo nível) e lista de redes `ip_network` por versão;
+  - `match(kind, value, mode) -> bool | None`, com `mode` em (`"strict"`, `"fr027"`).
+
+  `WarninglistEntry.matches` continua existindo e passa a ser usado só pelos testes de equivalência.
+- [ ] T014 Expor `warninglist_index(entries, mode)` em `<pkg>/collection/api.py`. Trocar o uso de `blocking_warninglist_membership` em `<pkg>/scoring/infrastructure/persistence/simple_blocking.py` por um índice por origem com `mode="strict"`. Remover `blocking_warninglist_membership` e `warninglist_membership`. T003 continua idêntico.
+
+### D4: decaimento, hostname e tipos
+
+- [ ] T015 [P] Criar testes em `tests/unit/test_decay.py` para `DecayGroup(name, D, T).freshness(t_days)`:
+  - `t` negativo dá `None` e `t >= T` dá `0`;
+  - valores do Notion: domain `t=158,2835` dá `69,687`; ip `t=3` dá `43,16`; hash `t=30` dá `29,29`;
+  - igualdade com `scoring/domain/simple_blocking.freshness` atual para `t` em 0, 1, 364,9 e 365.
+- [ ] T016 Criar `<pkg>/scoring/domain/decay.py` com `DecayGroup` e as constantes `DOMAIN = DecayGroup("domain", 0.7, 365)`, `IP = DecayGroup("ip", 1.5, 7)` e `HASH = DecayGroup("hash", 2, 60)`. Reescrever `freshness` em `<pkg>/scoring/domain/simple_blocking.py` para usar `DOMAIN` (URL usa o mesmo grupo no bloqueio simples, conforme a 002).
+- [ ] T017 Mover a validação de hostname DNS para uma função única `dns_hostname(kind, value) -> str | None` em `<pkg>/collection/domain/normalization.py`, reaproveitando `_domain`:
+  - `domain` valida o próprio valor; `url` extrai o host com os esquemas `http`, `https` e `ftp`, sem `userinfo`;
+  - IP literal, TLD numérico e host de um rótulo só dão `None`.
+
+  Expor a função em `<pkg>/collection/api.py`. Apagar `<pkg>/sharing/domain/pihole_hostname.py`, trocar o import em `<pkg>/sharing/infrastructure/scheduling/scheduler.py` e mover `test_dns_hostname` de `tests/unit/test_pihole_policy.py` para `tests/unit/test_normalization.py`, mantendo os mesmos parâmetros.
+- [ ] T018 [P] Criar constantes nomeadas de tipos em `<pkg>/collection/domain/indicators.py`: `DOMAIN_TYPES = frozenset({"domain", "hostname"})`, `IP_TYPES = frozenset({"ip-src", "ip-dst"})`, `HASH_TYPES` e `URL_TYPES = frozenset({"url"})`. Usá-las em `normalization.py` e `warninglists.py`. Em `<pkg>/scoring/domain/simple_blocking.py`, criar `BLOCKABLE_TYPES = frozenset({"domain", "url"})`. Fazer `active_blocking_values` em `<pkg>/collection/api.py` receber os tipos como parâmetro em vez de fixá-los.
+
+### D5: enums e Decisão de bloqueio
+
+- [ ] T019 Criar `<pkg>/scoring/domain/blocking.py` com:
+  - `BlockingReason(StrEnum)` com exatamente `eligible`, `removed`, `type`, `to_ids`, `analysis`, `warninglist`, `expired`, `indeterminate`, `rejected`, `stale`;
+  - `ScoreModel(StrEnum)` com `default` e `carioca`;
+  - a dataclass congelada `BlockingDecision(source_instance_id, attribute_uuid, attribute_id, block, reason, as_of, expires_at, generation, evidence)`.
+
+  `simple_blocking.decision` passa a devolver `BlockingReason`, e `evaluate` passa a devolver `BlockingDecision`. A persistência grava `reason.value`, então as colunas não mudam.
+- [ ] T020 Fazer `blocking_decision` e `effective_blocks` em `<pkg>/scoring/api.py` devolverem `BlockingDecision` em vez de `RowMapping`, com os mesmos campos e `rule_version`, e reexportar `ScoreModel`. Atualizar `<pkg>/sharing/domain/pihole_policy.py` para receber `ScoreModel`, e `<pkg>/sharing/infrastructure/scheduling/scheduler.py` para usar atributos em vez de chaves de dicionário. Em `tests/integration/test_simple_blocking.py` e `tests/integration/test_pihole_sharing.py`, trocar só a forma de acesso (`row["block"]` → `row.block`), sem mudar nenhum valor esperado. T003 continua idêntico.
+
+### D6: caso de uso do bloqueio simples
+
+- [ ] T021 Mover a orquestração de `<pkg>/scoring/infrastructure/persistence/simple_blocking.py::run` para `run_blocking(as_of, snapshot, max_age, store)` em `<pkg>/scoring/application/simple_blocking.py`. A porta `BlockingStore(Protocol)` tem `start(run_id, as_of)`, `upsert(decisions)` e `finish(run_id)`. Em `<pkg>/scoring/infrastructure/persistence/simple_blocking.py`, `run` dá lugar a `BlockingRunner`, um gerenciador de contexto que obtém os locks consultivos (`874202` sem espera, depois `874201`), abre a transação, lê o `CollectionSnapshot` e entrega um `BlockingStore`; se o lock não estiver livre, entrega `None`. Uma falha registra a execução `failed`. O job em `<pkg>/entrypoints/scoring_sharing.py` abre o runner, lê o `as_of` **uma vez**, dentro do contexto, e chama `run_blocking`. A infraestrutura não importa `scoring.application`.
+- [ ] T022 Criar `tests/architecture/test_public_api_types.py`. Sobre a fixture de integração, ele chama cada função pública de `<pkg>/collection/api.py` e `<pkg>/scoring/api.py`, percorre o valor devolvido (inclusive iteráveis e campos de dataclass) e falha se encontrar instância de `misp_ioc_scoring.shared.database.Base`, `Row` ou `RowMapping`.
+
+**Checkpoint**: D1–D6 concluídas. Os 77 testes antigos, a integração e T003 passam
+sem mudança de valor esperado, e `lint-imports` passa.
 
 ---
 
-## Phase 3: User Story 1 - Coletar e normalizar IOCs do MISP (Priority: P1) 🎯 MVP
+## Phase 3: User Story 2 - Calcular e explicar o score Carioca (Priority: P2)
 
-**Goal**: Collect actionable (`to_ids=true`) MISP data synchronously per endpoint, normalize supported indicators, and persist idempotent observations with provenance, `orgc_uuid` and warninglist entries (FR-001 to FR-006, FR-026, FR-027 data).
+**Goal**: recálculo diário completo da População válida com `as_of` único, calculado
+por observação e agregado no IOC pela observação de maior prioridade, com
+explicação, persistência, top-N e Pi-hole no modo `carioca` (FR-010, FR-012 a FR-014,
+FR-022 a FR-025; 002 FR-008).
 
-**Independent Test**: Process fixture MISP events and verify original/normalized values, source UUID provenance, `orgc_uuid`, a single IOC for equal type and normalized value, independent endpoint checkpoints, `to_ids` filtering with `removed_at` reconciliation, warninglist matching, and safe retry after failure.
-
-### Tests for User Story 1
-
-- [X] T016 [P] [US1] Add normalization unit tests for supported, invalid, and unsupported indicator types in `tests/unit/test_normalization.py`.
-- [X] T017 [P] [US1] Add collection contract tests for paginated MISP payloads, response variants, UUIDs, modifications, failures, `to_ids` filtering, `orgc_uuid` capture and warninglist download (including unsupported regex/substring entries) in `tests/contract/test_misp_collection.py`.
-- [X] T018 [P] [US1] Add PostgreSQL integration tests for IOC uniqueness, observation upsert, provenance retention, transaction rollback, checkpoint behavior, and `removed_at` reconciliation including refusal above `RECONCILE_MAX_REMOVAL_RATIO` without advancing the checkpoint in `tests/integration/test_collection_persistence.py`.
-- [X] T019 [P] [US1] Add unit tests for per-event, per-category attribute counts (`n_i` over the 16 MISP categories, active attributes only) in `tests/unit/test_event_aggregates.py`.
-- [X] T020 [P] [US1] Add PostgreSQL integration tests for Rejeição de indicador in `tests/integration/test_rejections.py`: invalid and unsupported indicators create no IOC; exactly one record per `(source_instance_id, attribute_uuid, reason)` after recollecting; a rejected attribute that later becomes valid has its record removed in the same transaction as IOC creation; count and listing by reason and source work; the raw value never appears in logs or error messages.
-- [X] T021 [P] [US1] Add unit tests for the observability export in `tests/unit/test_observability_export.py`: one sheet per table of every schema, read-only behavior, no column commented `secret` in any sheet, raw values such as `=1+1`, `+x`, `-x` and `@x` written as text, truncation above `EXPORT_MAX_ROWS_PER_SHEET` marked on the sheet with the true total shown in the Métricas sheet, and an explicit error without a partial file when the connection or settings are invalid.
-- [X] T022 [P] [US1] Add a PostgreSQL integration test in `tests/integration/test_observability_export_db.py` that runs `tools/export_observability.py` against the test database with the read-only `observer` role and checks every table appears as a sheet, the Métricas sheet matches known fixtures, and no write is possible (SC-012).
-- [X] T023 [P] [US1] Add unit tests for warninglist membership (exact normalized value, CIDR containment for IPs, hostname/subdomain for domains) and for regex/substring entries being stored with `supported = false` and never evaluated, in `tests/unit/test_warninglist_matching.py`.
-
-### Implementation for User Story 1
-
-- [X] T024 [P] [US1] Implement the IOC domain entity in `<pkg>/collection/domain/indicators.py` with identity uniqueness on `(type, normalized_value)` and validation that invalid content is never silently converted into a valid IOC.
-- [X] T025 [P] [US1] Implement the Observação de origem domain entity in `<pkg>/collection/domain/observations.py`, preserving raw value, source instance, event UUID, attribute UUID, category, `to_ids`, `orgc_uuid`, timestamps, distribution, relevant event context (`threat_level_id`, `analysis`) and `removed_at`.
-- [X] T026 [P] [US1] Define validated external MISP event/attribute/warninglist payload schemas in `<pkg>/collection/adapters/schemas.py`, preserving unrecognized raw enum values for explicit handling.
-- [X] T027 [P] [US1] Implement the Rejeição de indicador domain type in `<pkg>/collection/domain/rejections.py`: source instance, event UUID, attribute UUID, MISP type, raw value (untrusted data, never interpreted), `reason` in (`invalid`, `unsupported`), short non-sensitive `detail`, `rejected_at`; uniqueness on `(source_instance_id, attribute_uuid, reason)`.
-- [X] T028 [P] [US1] Implement the Entrada de warninglist domain type and matching in `<pkg>/collection/domain/warninglists.py`: list, list type, normalized value, source instance, `collected_at`, `supported`; membership by exact normalized value, CIDR for IPs and hostname/subdomain for domains; regex and substring entries marked `supported = false`, never evaluated, and listed for the operator.
-- [X] T029 [US1] Implement type/value normalization as domain rules in `<pkg>/collection/domain/normalization.py`, keeping source-specific parsing out of scoring and persistence; invalid or unsupported indicators produce a Rejeição de indicador (T027) and never an IOC.
-- [X] T030 [US1] Implement per-event category counts in `<pkg>/collection/domain/event_aggregates.py`, excluding observations with `removed_at` set.
-- [X] T031 [US1] Add SQLAlchemy mappings and Alembic migration in `<pkg>/collection/infrastructure/persistence/models.py` and `migrations/versions/0002_collection.py` creating, in schema `collection` (any credential or secret-reference column carries the PostgreSQL column comment `secret`), `ioc` (with `input_revision`), `observacao_origem` (with `orgc_uuid`, `to_ids`, `removed_at`), `endpoint_coleta` (with `to_ids_only` default true and removal-ratio limit) `rejeicao_indicador` (unique on `(source_instance_id, attribute_uuid, reason)`; `reason` restricted to `invalid` or `unsupported`) and `entrada_warninglist` (with `supported`); enforce IOC uniqueness on `(type, normalized_value)` and observation uniqueness on source instance + attribute UUID.
-- [X] T032 [US1] Implement paginated source queries in `<pkg>/collection/adapters/collection.py` using `<pkg>/shared/misp/client.py`: configured instance version/OpenAPI compatibility, `to_ids` filter per endpoint, overlapped time windows, event `orgc_uuid`, and enabled warninglist entries.
-- [X] T033 [US1] Implement IOC, Observação de origem, Endpoint de coleta, Rejeição de indicador (upsert per origin and reason; delete when the attribute becomes valid, in the IOC-creation transaction) and warninglist repositories in `<pkg>/collection/infrastructure/persistence/repositories/observations.py`; reconcile by source UUID and modification time, never by local numeric MISP IDs.
-- [X] T034 [US1] Implement reconciliation of removed, expired or filtered-out attributes (set `removed_at`, preserve provenance) with the mass-removal guard in `<pkg>/collection/application/reconcile.py`; above the configured ratio, refuse to apply and raise an operator-visible error.
-- [X] T035 [US1] Implement the synchronous collection use case, transactional batch persistence, overlap windows, bounded retry/backoff, and checkpoint advancement only after complete successful processing in `<pkg>/collection/application/collect.py`.
-- [ ] T036 [US1] Implement per-endpoint cadence (from environment, T005), last-run/last-success state, non-overlapping collection jobs in `<pkg>/collection/infrastructure/scheduling/scheduler.py`, and the collector composition root in `<pkg>/entrypoints/collector.py`.
-- [ ] T037 [US1] Implement collection run status and safe actionable error reporting in `<pkg>/collection/application/status.py`, including rejection counts by reason and by source, without logging credentials, raw indicator values or raw sensitive payloads.
-- [X] T038 [US1] Implement `tools/export_observability.py` per `contracts/observability-export.md`: connect with the read-only `observer` role, reflect all tables of the `collection`, `scoring` and `sharing` schemas (no imports from the modules), write one `.xlsx` sheet per table with openpyxl, neutralize untrusted text values, use openpyxl write-only mode, write the file with permission 0600 into a restricted output directory, skip every column commented `secret`, apply the row cap (default 1000000, ceiling 1048575) without silent truncation, and build the Métricas sheet through pluggable metric functions; include the collection metrics: rows per table, rejections by reason and source, last collection run per endpoint, and unsupported warninglist entries. There is no CLI: configuration comes only from environment variables (T005).
-- [ ] T039 [US1] Implement the read-only public surface in `<pkg>/collection/api.py`: iterate active IOCs with observations, per-event category counts, event threat level/analysis, per-pair first-publication facts by `orgc_uuid` (for FeedRank), warninglist membership by `(type, normalized_value)`, unsupported warninglist entries, listing and counting of Rejeições de indicador by reason and source, and current `input_revision`.
-
-**Checkpoint**: Story 1 is independently testable against MISP fixtures and PostgreSQL; repeated windows do not duplicate IOCs or observations; filtered-out attributes are reconciled safely; warninglist matching follows the supported types only.
-
----
-
-## Phase 4: User Story 2 - Calcular e explicar o score Carioca (Priority: P2)
-
-**Goal**: Recalculate daily, for the whole valid population with a single `as_of` and without reusing earlier results, deterministic CARIOCA v3 priority scores and explanations within 1 hour, refusing to score with incomplete or unapproved configuration (FR-010, FR-012 to FR-014, FR-022 to FR-025, SC-011).
-
-**Independent Test**: Run published-formula reference cases and verify component scores (Source, Event with normalized CADE, Attribute), deterministic 0–100 priority for a fixed `as_of`, rank and top-N membership, explanations, exclusion reasons, empty-population and all-equal MinMax behavior, missing-input handling, and refusal to score with incomplete approved configuration.
+**Independent Test**: com uma configuração de teste aprovada e fixtures montadas com
+os insumos do Notion, a execução reproduz `hotels-stays55501.com` (CADE 6,5218; CADE'
+19,544; E 31,017; A 69,687; P 75,838 no cenário v3). Exclui `url` e observações
+`to_ids=false` com motivo, dá 50 em MinMax degenerado e conclui sem scores em
+população vazia. Com `approved: false`, o serviço não inicia.
 
 ### Tests for User Story 2
 
-- [ ] T040 [P] [US2] Add unit tests for TL/SA mappings (`threat_level_id` 1/2/3/4 → 100/66/33/0; `analysis` 0/1/2 → 0/50/100), Event score `0,4·TL + 0,2·SA + 0,4·CADE'`, and Attribute freshness (hash 2/60, ip 1,5/7, domain 0,7/365; `t ≥ T_a` → 0; unsupported types → 0) against `as_of`, using the real reference cases from the Notion page "CARIOCA — fórmulas e exemplos reais" (e.g. `hotels-stays55501.com`: CADE 6,5218, E 25,8087, P 69,486) in `tests/unit/test_carioca_components.py`.
-- [ ] T041 [P] [US2] Add unit tests for the CADE `CS_i = (1 − e^(−n²/(2σ²)))·100`, β = 1/16, robust σ estimator, explicit σ = 0 rule, and MinMax between events in `tests/unit/test_cade.py`.
-- [ ] T042 [P] [US2] Add unit tests for the `orgc-proxy` FeedRank (first publisher per pair, directed graph, PageRank 0,85, `V_o = 50·c·100 + 50·MinMax(PR)`, `Source = MinMax(V_o)`) in `tests/unit/test_feed_rank.py`.
-- [ ] T043 [P] [US2] Add unit tests for population eligibility and exclusion reasons (type without decay group, expired), MinMax where maximum = minimum (normalized value 50, recorded in the explanation), empty population (run completes without scores and with an operator warning), and SPOTIS equivalence to `(S'+E'+A')/3` in `tests/unit/test_population_priority.py`.
-- [ ] T044 [P] [US2] Add unit tests for rank assignment and top-N selection boundaries, ties, and `top_n` larger than the valid population in `tests/unit/test_selection.py`.
-- [ ] T045 [P] [US2] Add tests that reject incomplete/unapproved configuration (including missing σ estimator, CADE normalization, FeedRank method, `top_n`) and missing required inputs, and assert identical results for identical input/configuration/`as_of` snapshots in `tests/unit/test_carioca_configuration.py`.
-- [ ] T046 [P] [US2] Add unit tests in `tests/unit/test_scoring_metrics.py` for the scoring metrics of the export (last successful run with `as_of` and duration, valid population and exclusions by reason, empty-population and equal-value warnings, rank cut) computed from fixture tables.
-- [ ] T047 [P] [US2] Add PostgreSQL integration tests for persisted score provenance, configuration version, `as_of`, rank/top-N, population statistics, exclusions and scoring-run state in `tests/integration/test_scoring_persistence.py`.
+- [ ] T023 [P] [US2] Criar `tests/unit/test_carioca_components.py`:
+  - mapeamentos TL (`threat_level_id` 1/2/3/4 → 100/66/33/0) e SA (`analysis` 0/1/2 → 0/50/100);
+  - Event `0,4·TL + 0,2·SA + 0,4·CADE'` (`hotels-stays55501.com`: TL 33, SA 50, CADE' 19,544 → E 31,017; evento 19: TL 100, SA 100, CADE 18,7994 → 67,5198 no cálculo v2);
+  - frescor contra `as_of` pelos três `DecayGroup` (T016), sem usar o relógio do sistema.
+- [ ] T024 [P] [US2] Criar `tests/unit/test_cade.py`:
+  - `CS_i = (1 − e^(−n²/(2σ²)))·100` com β = 1/16;
+  - `hotels-stays55501.com`: n = 60/48/10 e σ = 917,29/165,15/0,45 → CS 0,2137/4,1359/100,0000 e CADE 6,5218;
+  - evento 19 → CADE 18,7994;
+  - regra explícita de σ = 0 lida da configuração;
+  - MinMax entre eventos (6,5218 com mínimo 0,0000037 e máximo 33,3707 → 19,544).
+
+  É o **nível 1** da SC-015: σ entra como dado do teste, com os valores do Notion (σ populacional bruto). Não usa o estimador da configuração.
+- [ ] T025 [P] [US2] Criar `tests/unit/test_feed_rank.py`:
+  - primeiro publicador por par `(tipo, valor)` com desempate por `source_created_at` e depois `orgc_uuid`;
+  - grafo dirigido "quem publicou depois aponta para quem publicou antes", com peso = pares em comum;
+  - PageRank 0,85 com 50 iterações e nós sem saída redistribuídos uniformemente (`dangling: uniform`);
+  - `V_o = 50·c_o·100 + 50·MinMax(PR)_o` e `Source = MinMax(V_o)`;
+  - grafo de 3 organizações com valores calculados à mão e documentados no teste;
+  - só observações publicadas e `to_ids=true` contam.
+- [ ] T026 [P] [US2] Criar `tests/unit/test_population_priority.py`:
+  - elegibilidade e motivos de exclusão `type_without_decay_group` (inclui `url` e tipos fora da lista fechada), `expired`, `not_to_ids`, `unpublished` (evento não publicado), `missing_data` (TL, SA, timestamp, categoria ou `orgc` ausente ou desconhecido) e `incomplete_configuration`;
+  - motivo do IOC pela precedência `incomplete_configuration` > `missing_data` > `unpublished` > `not_to_ids` > `type_without_decay_group` > `expired`; IOC com uma observação válida e outra sem `orgc` não é excluído;
+  - MinMax com máximo = mínimo dá 50 e registra o componente em `minmax_degenerate`;
+  - população vazia conclui sem scores e com aviso;
+  - SPOTIS (ideal 100, pesos 1/3) igual a `(S'+E'+A')/3` em 1.000 triplas aleatórias com semente fixa;
+  - escopos de normalização: `CADE'` entre eventos com observação `to_ids` ativa, `E'` entre eventos com observação válida, `A'` e `S'` entre observações válidas.
+- [ ] T027 [P] [US2] Criar `tests/unit/test_aggregation_selection.py`:
+  - o IOC recebe a observação de maior `priority`;
+  - em empate vence o menor `source_created_at` e depois o menor `(source_instance_id, attribute_uuid)`;
+  - `observations_evaluated` correto;
+  - `rank` denso por prioridade decrescente; `in_top_n` marca exatamente os `top_n` primeiros, inclusive com empate na fronteira e com `top_n` maior que a população.
+- [ ] T028 [P] [US2] Criar `tests/unit/test_carioca_configuration.py`:
+  - rejeitar YAML com peso negativo, pesos que não somam 1, `top_n` ausente, estimador de σ ausente, regra σ = 0 ausente, `type_groups` ausente ou com `url`, ou `aggregation` diferente de `max-observation`;
+  - `content_hash` estável para o mesmo conteúdo canônico;
+  - `approved: false` impede o cálculo com erro explícito;
+  - resultados idênticos para entrada, configuração e `as_of` idênticos.
+- [ ] T029 [P] [US2] Criar `tests/unit/test_scoring_metrics.py` para as métricas da exportação a partir de tabelas fixture: última execução bem-sucedida (`as_of`, duração), população válida, exclusões por motivo, avisos de população vazia e MinMax degenerado, e corte do top-N.
+- [ ] T030 [P] [US2] Criar `tests/integration/test_scoring_persistence.py` em PostgreSQL:
+  - persistência de execução, estatísticas, `avaliacao_observacao` (única por `(scoring_run_id, source_instance_id, attribute_uuid)`), `resultado_score` (único por `(scoring_run_id, ioc_id)`) e exclusões;
+  - execução falha não substitui a vigente;
+  - o lock consultivo impede duas execuções simultâneas;
+  - o papel do coletor não escreve em `scoring`.
+- [ ] T031 [P] [US2] Criar `tests/integration/test_scoring_api.py` para [contracts/scoring-api.md](./contracts/scoring-api.md):
+  - `current_carioca_run` ignora execuções falhas e em andamento;
+  - `carioca_scores` filtra `min_score` e `top_n_only`, ordena por `rank` e pagina;
+  - `explain` traz a observação vencedora, σ, componentes degenerados e a limitação do proxy `orgc`.
+- [ ] T032 [P] [US2] Criar `tests/integration/test_carioca_to_ids_independence.py`: coletar a mesma fixture com `MISP_TO_IDS_ONLY=true` e depois `false`, executar o scoring com o mesmo `as_of` e verificar scores, ranks e exclusões idênticos para os IOCs `to_ids=true`.
 
 ### Implementation for User Story 2
 
-- [ ] T048 [P] [US2] Evaluate σ estimators (percentile-95 cap and log scale) on the study MISP data described in the Caderno de Projetos (Notion), handling categories where the cap yields σ = 0, and record the evidence and a proposed approved configuration in `docs/sigma-estimator-evaluation.md`; this blocks approving the configuration (T058), not the formula code.
-- [ ] T049 [P] [US2] Implement the versioned CARIOCA configuration domain model in `<pkg>/scoring/domain/carioca_configuration.py`; validate nonnegative weights summing to 1 (α: 0,4/0,2/0,4; β: 1/16), model ids (`carioca-orgc-proxy-v3`, `cade-seminormal-v2`), σ estimator method/version/σ = 0 rule, CADE MinMax, FeedRank `orgc-proxy` parameters, SPOTIS weights 1/3, freshness mappings, `top_n` (no implicit default), approval, and configuration hash. MinMax with maximum = minimum is fixed at 50 and is not configurable.
-- [ ] T050 [US2] Implement CARIOCA input completeness validation and published mappings (TL, SA, type → decay group including composite types such as `filename|hash`) in `<pkg>/scoring/domain/carioca_inputs.py`; missing or unknown required values must yield an explicit invalid result rather than an invented score.
-- [ ] T051 [US2] Implement the CADE calculation (category scores, robust σ, per-event MinMax) in `<pkg>/scoring/domain/cade.py`, applying only approved configuration.
-- [ ] T052 [US2] Implement Event score and Attribute freshness computed against `as_of` (never the system clock) in `<pkg>/scoring/domain/carioca_components.py`.
-- [ ] T053 [US2] Implement the `orgc-proxy` FeedRank in `<pkg>/scoring/domain/feed_rank.py` (in pure Python unless T048 or the benchmark T063 shows a need; record any new dependency in `research.md`), returning a configuration error when the approved method/version is absent and exposing the proxy limitation for explanations.
-- [ ] T054 [US2] Implement population eligibility and exclusion reasons (type without decay group, expired, missing data, incomplete configuration) in `<pkg>/scoring/domain/population.py`.
-- [ ] T055 [US2] Implement MinMax (maximum = minimum → 50, flagged for the explanation) and SPOTIS final priority in `<pkg>/scoring/domain/priority.py`, with equal criterion weights and a 0–100 result where higher means more relevant.
-- [ ] T056 [US2] Implement rank assignment and top-N selection over the valid scores of a scoring run in `<pkg>/scoring/domain/selection.py`, using the `top_n` from the approved configuration.
-- [ ] T057 [US2] Add persistence mappings and Alembic migration in `<pkg>/scoring/infrastructure/persistence/models.py` and `migrations/versions/0003_scoring.py` creating, in schema `scoring` (any credential or secret-reference column carries the column comment `secret`), `configuracao_carioca`, `estatisticas_populacao`, `resultado_score` (with `as_of`, raw and normalized components, input revision, `rank`, `in_top_n`), `exclusao_score` and `execucao_scoring` (with `as_of` and `warnings` for conditions such as an empty population or equal-value MinMax).
-- [ ] T058 [US2] Create the explicit CARIOCA v3 configuration file `config/carioca-orgc-proxy-v3.yaml` with every parameter from T049 and `approved: false` until the σ evaluation in `docs/sigma-estimator-evaluation.md` is approved.
-- [ ] T059 [US2] Implement the daily population scoring use case in `<pkg>/scoring/application/score_population.py`: fix `as_of`, load a stable snapshot through `collection.api`, compute population statistics (σ, min/max, FeedRank), score every valid IOC without reusing earlier results, assign rank/top-N, persist results, exclusions and statistics, finish without scores on an empty population, recording the warning as a structured WARNING log event and in `execucao_scoring.warnings`, and never emit a valid score for incomplete configuration or data.
-- [ ] T060 [US2] Implement the non-overlapping daily scoring job, with its frequency read from the environment (T005), in `<pkg>/scoring/infrastructure/scheduling/scheduler.py` and wire it into the composition root `<pkg>/entrypoints/scoring_sharing.py`.
-- [ ] T061 [US2] Implement operator-facing score explanation/status rendering in `<pkg>/scoring/application/score_explanation.py` using canonical domain terms, the `as_of`, rank/top-N, the exclusion reason, MinMax-equal-values notes, and the FeedRank proxy limitation.
-- [ ] T062 [US2] Add the scoring metric functions to the observability export in `tools/metrics/scoring.py` (last successful run, `as_of`, duration, valid population, exclusions by reason, empty-population and equal-value warnings), reading only the exported tables.
-- [ ] T063 [US2] Add a benchmark in `tests/benchmark/test_scoring_performance.py` that runs T059 over representative data (order of 270 mil valid IOCs) generated by `tests/benchmark/dataset.py` (synthetic, with a realistic category/organization/age distribution) or, when `BENCHMARK_DATABASE_URL` is set, loaded from a copy of the study MISP database, and asserts the full recalculation completes within 1 hour (SC-011); record the memory-versus-SQL processing decision in `research.md`.
+- [ ] T033 [P] [US2] Avaliar os estimadores de σ (limite no percentil 95 e escala log) sobre os dados do MISP de estudos descritos no Caderno de Projetos (Notion), tratando categorias com σ = 0. Registrar evidência e configuração proposta em `docs/sigma-estimator-evaluation.md`, com os valores recalculados (σ, CADE, CADE', E e P) de `hotels-stays55501.com` e do evento 19 também em `tests/unit/fixtures/carioca_reference_approved.json`. **Depende do dono**: exige acesso aos dados do MISP de estudos, que não estão no repositório. Isso bloqueia a aprovação (T043) e o nível 2 da SC-015 (T034), não o código.
+- [ ] T034 [US2] Criar `tests/unit/test_carioca_reference_approved.py` (**nível 2** da SC-015): carrega a configuração de `config/carioca-orgc-proxy-v3.yaml` e os valores de `tests/unit/fixtures/carioca_reference_approved.json` (T033) e confere σ, CADE, CADE', E e P dos casos de referência. Fica com `pytest.skip` explícito enquanto o arquivo de valores não existir ou `approved` for `false`; com `approved: true`, a ausência do arquivo faz o teste falhar.
+- [ ] T035 [P] [US2] Implementar `<pkg>/scoring/domain/carioca_configuration.py`, com a dataclass congelada `CariocaConfiguration` e o carregamento e validação do YAML:
+  - α 0,4/0,2/0,4 e β 1/16 (não negativos, somando 1); `model_id` `carioca-orgc-proxy-v3` e `cade_id` `cade-seminormal-v2`;
+  - σ: `method`, `version` e `zero_rule`;
+  - `type_groups` fechado (hash: md5, sha1, sha256, sha512, ssdeep, imphash, tlsh, filename, malware-sample e `filename|<hash>`; ip: ip-src, ip-dst, ip-src|port, ip-dst|port; domain: domain, hostname, domain|ip; sem `url`);
+  - `scoring_to_ids_only: true`, `aggregation: max-observation` e `normalization_scopes`;
+  - `feed_rank` (damping 0,85, iterations 50, dangling uniform, pesos 50/50) e SPOTIS (pesos 1/3, ideal 100);
+  - `top_n` sem default; `approved`, `approved_by`, `approved_at`, `evidence_ref`;
+  - `content_hash` SHA-256 do YAML canônico. O MinMax com máximo = mínimo é fixo em 50 e não configurável.
+- [ ] T036 [US2] Implementar `<pkg>/scoring/domain/carioca_inputs.py`: mapear TL e SA, e mapear tipo → `DecayGroup` pela configuração. Valores ausentes ou desconhecidos (TL, SA, timestamp, categoria ou `orgc_uuid`) dão resultado inválido explícito com motivo `missing_data`, e observação de evento não publicado dá `unpublished`; nunca um score inventado.
+- [ ] T037 [US2] Implementar `<pkg>/scoring/domain/cade.py`: contagem `n_i` por evento sobre observações `to_ids=true` ativas (reaproveitando `collection/domain/event_aggregates.CATEGORIES` via `collection.api`); σ por categoria com o estimador aprovado e a regra σ = 0; `CS_i`; CADE bruto; `CADE'` por MinMax no escopo `cade`.
+- [ ] T038 [US2] Implementar `<pkg>/scoring/domain/carioca_components.py`: `A` via `DecayGroup.freshness` com `t` = dias entre `source_modified_at` e `as_of`; Event `0,4·TL + 0,2·SA + 0,4·CADE'`; tudo contra `as_of`, nunca contra o relógio.
+- [ ] T039 [US2] Implementar `<pkg>/scoring/domain/feed_rank.py` em Python puro, conforme T025, devolvendo, por organização, `first_pairs`, `contribution`, `pagerank`, `pagerank_norm`, `value` e `source_norm`. Gera erro de configuração quando `feed_rank` está ausente e expõe o texto da limitação do proxy para a explicação.
+- [ ] T040 [US2] Implementar `<pkg>/scoring/domain/population.py` (elegibilidade por observação e motivos de exclusão por IOC, conforme `data-model.md`; um IOC com ao menos uma observação válida não é excluído) e `<pkg>/scoring/domain/priority.py` (MinMax com o 50 fixo e registro em `minmax_degenerate`; SPOTIS com pesos iguais, resultado de 0 a 100).
+- [ ] T041 [US2] Implementar `<pkg>/scoring/domain/aggregation.py` (observação vencedora com o desempate do plano e `observations_evaluated`) e `<pkg>/scoring/domain/selection.py` (`rank` denso e `in_top_n` com o `top_n` da configuração).
+- [ ] T042 [US2] Criar os mapeamentos em `<pkg>/scoring/infrastructure/persistence/carioca.py` e a migration `migrations/versions/0008_carioca_scoring.py` (`down_revision` = `0007_pihole_policy`), no schema `scoring`:
+  - `configuracao_carioca` (versão, hash, conteúdo, aprovação);
+  - `execucao_scoring` (`as_of`, início, fim, estado `running`/`completed`/`failed`, como `execucao_bloqueio`, contadores, `warnings`);
+  - `estatisticas_populacao`;
+  - `avaliacao_observacao` (campos de `data-model.md`, única por `(scoring_run_id, source_instance_id, attribute_uuid)`);
+  - `resultado_score` (com `as_of`, componentes brutos e normalizados, `input_revision`, `rank`, `in_top_n`, `winning_source_instance_id`, `winning_attribute_uuid`, `observations_evaluated`; único por `(scoring_run_id, ioc_id)`);
+  - `exclusao_score`.
 
-**Checkpoint**: Story 2 produces reproducible, traceable scores with rank for the whole valid population under a complete approved configuration, within the time target, and explicit invalid outcomes otherwise.
+  Grants seguem `0001_module_roles`: escrita para o papel do scoring e leitura para o `observer`.
+- [ ] T043 [US2] Criar `config/carioca-orgc-proxy-v3.yaml` com todos os parâmetros de T035 e `approved: false` até `docs/sigma-estimator-evaluation.md` (T033) ser aprovado pelo dono; montar o diretório no serviço `scoring-sharing` de `compose.yaml` em modo somente leitura e adicionar `CARIOCA_CONFIG_PATH` a `.env.example`. Remover `CARIOCA_TOP_N` de `.env.example` (linha 29): o `top_n` vem só do YAML.
+- [ ] T044 [US2] Implementar o caso de uso `run_carioca(as_of, snapshot, configuration, store)` em `<pkg>/scoring/application/score_population.py`, seguindo o molde de D6:
+  - recebe o `CollectionSnapshot` (T008) e filtra `to_ids=true`;
+  - calcula estatísticas (σ, mínimos e máximos por escopo, FeedRank);
+  - avalia toda observação válida sem reaproveitar execuções anteriores, agrega por IOC e atribui rank e top-N;
+  - persiste avaliações, resultados, exclusões e estatísticas pela porta `CariocaStore`;
+  - com população vazia, conclui sem scores, registra um WARNING estruturado e grava o aviso em `execucao_scoring.warnings`;
+  - nunca emite score válido com configuração ou dados incompletos.
+- [ ] T045 [US2] Implementar `CariocaRunner` em `<pkg>/scoring/infrastructure/persistence/carioca.py`, no molde do `BlockingRunner` (T021): gerenciador de contexto com lock consultivo próprio, mais o lock da coleta `874201` enquanto lê o snapshot em `REPEATABLE READ`, e entrega da porta `CariocaStore` com gravação em lotes de 1.000. A execução falha é registrada sem substituir a vigente. A infraestrutura não importa `scoring.application`.
+- [ ] T046 [US2] Ligar o job em `<pkg>/entrypoints/scoring_sharing.py` (abre o `CariocaRunner`, lê o `as_of` uma vez e chama `run_carioca`) e agendá-lo por `<pkg>/scoring/infrastructure/scheduling/scheduler.py` com `SCORING_DAILY_CRON`, `max_instances=1` e `coalesce`. Em `<pkg>/shared/configuration.py`, retirar `SCORING_CARIOCA_ENABLED` da lista `NOT_IMPLEMENTED`: com `true`, a inicialização exige `CARIOCA_CONFIG_PATH` legível, configuração válida e `approved: true`, ou falha com `CARIOCA_CONFIGURATION_NOT_APPROVED`. Atualizar `tests/integration/test_module_activation.py` e `tests/unit/test_configuration.py`.
+- [ ] T047 [US2] Implementar em `<pkg>/scoring/api.py` `current_carioca_run`, `carioca_scores` (paginado) e `exclusions`, conforme [contracts/scoring-api.md](./contracts/scoring-api.md), com dataclasses congeladas `CariocaRun` e `CariocaScore` definidas em `<pkg>/scoring/domain/carioca_results.py`.
+- [ ] T048 [US2] Implementar `explain` em `<pkg>/scoring/application/score_explanation.py` e expô-lo em `<pkg>/scoring/api.py`. A explicação usa os termos canônicos do glossário e inclui: `as_of`, rank e top-N, observação vencedora, `observations_evaluated`, componentes brutos e normalizados, σ das categorias, componentes com MinMax degenerado, motivo de exclusão e a limitação do proxy `orgc`.
+- [ ] T049 [P] [US2] Adicionar as funções de métrica em `tools/metrics/scoring.py` (última execução bem-sucedida, `as_of`, duração, população válida, exclusões por motivo, avisos de população vazia e MinMax degenerado, corte do top-N), lendo só tabelas exportadas, e registrá-las em `tools/export_observability.py`.
+- [ ] T050 [US2] Implementar o modo `carioca` do Pi-hole em `<pkg>/sharing/infrastructure/scheduling/scheduler.py` e `<pkg>/sharing/domain/pihole_policy.py`:
+  - ler `current_carioca_run` e `carioca_scores(min_score=PIHOLE_CARIOCA_MIN_SCORE)`, sem top-N;
+  - se a execução vigente for mais antiga que `SCORE_MAX_AGE_HOURS`, não enviar, preservar as entradas e registrar WARNING;
+  - aplicar `warninglist_index(..., mode="strict")` e `untrusted_sources`;
+  - só `domain` e `hostname` (URL fica fora do CARIOCA);
+  - evidência com `model: "carioca"`, `as_of`, `priority_score` e `scoring_run_id`.
+
+  Retirar `PIHOLE_CARIOCA_NOT_IMPLEMENTED` de `<pkg>/shared/configuration.py`. O modo `carioca` exige `SCORING_CARIOCA_ENABLED=true`.
+- [ ] T051 [P] [US2] Acrescentar casos do modo `carioca` em `tests/integration/test_pihole_sharing.py`: acima e abaixo do corte, execução vigente vencida (nada enviado e entradas preservadas), sem execução, origem não confiável e URL ignorada.
+- [ ] T052 [US2] Criar o benchmark `tests/benchmark/test_scoring_performance.py` com o gerador `tests/benchmark/dataset.py`: cerca de 270 mil IOCs válidos sintéticos, com distribuição realista de categorias, organizações (27, duas com cerca de 92% dos pares) e idades. Quando `BENCHMARK_DATABASE_URL` estiver definido, usar uma cópia do MISP de estudos e conferir também a tabela de fontes do Notion §4 (CIRCL S' 100; CthulhuSPRL.be 59,92; Krawczyk 47,05; PageRank do CIRCL 0,40966). O recálculo completo deve terminar em até 1 hora (SC-011). Registrar a decisão entre memória e SQL em `research.md`.
+- [ ] T053 [P] [US2] Acrescentar ao `docs/domain-glossary.md` os termos "Avaliação de observação" e "Observação vencedora", com sinônimos a evitar.
+
+**Checkpoint**: US2 pode ser testada sozinha; com configuração de teste aprovada o
+job diário produz scores explicáveis, e o Pi-hole `carioca` funciona.
 
 ---
 
-## Phase 5: User Story 3 - Rastrear IOCs com dados de entrada alterados (Priority: P2)
+## Phase 4: User Story 3 - Rastrear IOCs com dados de entrada alterados (Priority: P2)
 
-**Goal**: Advance `input_revision` only when algorithm inputs change and track, as traceability only, which IOCs have changed data since their last successful score; pending is cleared only after a successful calculation on the current revision (FR-007 to FR-011). The daily recalculation of the whole population does not depend on candidates.
+**Goal**: o candidato a re-scoring rastreia IOCs cuja revisão de entrada mudou desde o
+último score bem-sucedido, sem influir em quais IOCs são calculados (FR-007 a
+FR-011). Inclui as etapas D7–D8 do ajuste de DDD, que tiram do repositório a regra
+que gera essas revisões.
 
-**Independent Test**: Change an algorithm input on one source observation and a non-input on another; verify only the related IOC's `input_revision` advances and only it becomes a candidate, a successful daily run on the current revision clears it, and failures/concurrent changes remain pending.
+**Independent Test**: alterar um campo relevante de uma observação marca o IOC uma
+vez; alterar um campo irrelevante não marca. Um recálculo bem-sucedido limpa a
+pendência; falha ou revisão concorrente a mantém.
 
 ### Tests for User Story 3
 
-- [ ] T064 [P] [US3] Add unit tests for relevant-field classification (fields feeding Source, Event, CADE and Attribute) and exclusion of irrelevant fields in `tests/unit/test_input_revision.py`.
-- [ ] T065 [P] [US3] Add unit tests for candidate derivation (`input_revision` differs from the last successfully scored revision), coalescing multiple observations into one IOC candidate, and that candidacy never changes which IOCs are scored in `tests/unit/test_rescoring_candidates.py`.
-- [ ] T066 [P] [US3] Add PostgreSQL integration tests for candidate upsert, input revision races, scoring failures, and score writes not re-marking candidates in `tests/integration/test_rescoring_candidates.py`.
+- [ ] T054 [P] [US3] Criar `tests/unit/test_reconcile_snapshot.py` para `reconcile_snapshot(existing, received, collected_at, removal_ratio)`:
+  - atualização com `source_modified_at` mais antigo é ignorada;
+  - valor inválido ou não suportado vira rejeição e marca a observação ativa como removida;
+  - valor válido cria o IOC pela identidade `(type, normalized_value)` com a entidade `IOC`;
+  - rejeição anterior é resolvida;
+  - observação ausente do snapshot vira remoção;
+  - IOC com campo relevante alterado entra no conjunto de revisões, e campo irrelevante não entra;
+  - troca de IOC marca o antigo e o novo;
+  - remoção acima de `removal_ratio` recusa a reconciliação.
+- [ ] T055 [P] [US3] Criar `tests/unit/test_rescoring_candidates.py`: derivação de candidatos por `input_revision` diferente da revisão do último score válido; várias observações viram um só candidato; candidatura não muda o conjunto pontuado; gravar score não altera `input_revision`.
+- [ ] T056 [P] [US3] Criar `tests/integration/test_rescoring_candidates.py` em PostgreSQL: upsert de candidato, revisão que muda durante o cálculo mantém a pendência, falha de scoring mantém a pendência, e gravar score não remarca.
 
 ### Implementation for User Story 3
 
-- [ ] T067 [US3] Implement relevant-input change classification in `<pkg>/collection/domain/input_revision.py`: only changes to fields used by the algorithm (type/normalized value, category, `to_ids`, `removed_at`, `orgc_uuid`, attribute timestamp, event threat level and analysis) increment `ioc.input_revision`.
-- [ ] T068 [US3] Integrate `input_revision` increments with source-observation upserts in `<pkg>/collection/infrastructure/persistence/repositories/observations.py`; the collection module never writes scoring tables.
-- [ ] T069 [US3] Add the Candidato a re-scoring mapping and Alembic migration in `<pkg>/scoring/infrastructure/persistence/candidate_models.py` and `migrations/versions/0004_rescoring_candidates.py` (schema `scoring`); enforce one candidate per logical IOC with pending state and the last successfully scored input revision.
-- [ ] T070 [US3] Add the pending-candidates metric to the observability export in `tools/metrics/candidates.py` (pending count, oldest pending age, last attempt error), plus its unit test in `tests/unit/test_candidate_metrics.py`.
-- [ ] T071 [US3] Implement candidate derivation in `<pkg>/scoring/domain/rescoring.py`: an IOC is a candidate when its `input_revision` (read via `collection.api`) differs from the revision of its last valid score; score writes never alter `input_revision`.
-- [ ] T072 [US3] Implement candidate snapshot and completion in `<pkg>/scoring/application/score_candidates.py` and edit `<pkg>/scoring/application/score_population.py` (T059) to call it after each IOC calculation: record the revision used by each calculation and clear pending only if the IOC's calculation succeeded and its input revision still matches; it must not select which IOCs are scored nor reuse earlier results.
-- [ ] T073 [US3] Extend daily run status and retry visibility for candidates in `<pkg>/entrypoints/scoring_sharing.py`, preserving pending status on failures and concurrent input changes.
+- [ ] T057 [US3] (D7) Criar `<pkg>/collection/domain/reconciliation.py` com a dataclass `Changeset` (inserções, atualizações, IOCs novos, rejeições a gravar e a resolver, remoções e `ioc_ids` cuja revisão sobe) e a função pura `reconcile_snapshot`. Ela usa `normalize`, `inputs_changed` e a entidade `IOC` de `<pkg>/collection/domain/indicators.py`, e leva para o domínio a trava de remoção hoje em `<pkg>/collection/application/reconcile.py`.
+- [ ] T058 [US3] (D7) Reescrever `<pkg>/collection/infrastructure/persistence/repositories/observations.py::apply` para:
+  - carregar as observações, IOCs e rejeições da origem em lote, eliminando o `SELECT` por observação;
+  - chamar `reconcile_snapshot` e gravar o `Changeset` na mesma transação, mantendo os locks e a checagem `collection_checkpoint_superseded`;
+  - devolver as contagens (aplicadas, rejeitadas por motivo, removidas).
 
-**Checkpoint**: Story 3 tracks pending data changes correctly without score-write loops and without affecting which IOCs are scored.
+  `tests/integration/test_collection_persistence.py`, `tests/integration/test_rejections.py` e T003 continuam iguais.
+- [ ] T059 [US3] (D8) Apagar `<pkg>/collection/application/reconcile.py` (a regra está agora em T057) e retirar do repositório os imports de `collection.application`. Mover `report_status` para dentro do caso de uso `<pkg>/collection/application/collect.py`, que o chama depois de `repository.apply` ou `repository.failed`.
+- [ ] T060 [US3] (D8) Adicionar em `pyproject.toml` contratos import-linter `forbidden` de `misp_ioc_scoring.<módulo>.infrastructure` para `misp_ioc_scoring.<módulo>.application` em `collection`, `scoring` e `sharing`. Depois de T021 e T045, `scoring` já cumpre o contrato. Se `sharing.infrastructure.scheduling` ainda importar `sharing.application.sync_pihole` (resolvido em T070), registrar a exceção temporária com `ignore_imports` e removê-la em T070.
+- [ ] T061 [US3] Completar o status da coleta em `<pkg>/collection/application/status.py` (resto da T037 antiga): o log estruturado de cada execução inclui contagem de rejeições por motivo e por origem, vinda de T058, sem credenciais, valores brutos ou payloads; acrescentar o caso em `tests/unit/test_collection_use_case.py`.
+- [ ] T062 [US3] Criar o mapeamento em `<pkg>/scoring/infrastructure/persistence/candidates.py` e a migration `migrations/versions/0009_rescoring_candidates.py` (schema `scoring`), com `candidato_rescoring`: `ioc_id` como chave primária, `pending`, `input_revision`, `reason`, `marked_at`, `last_attempt_at` e `last_error`, com um candidato por IOC lógico.
+- [ ] T063 [US3] Implementar `<pkg>/scoring/domain/rescoring.py`: um IOC é candidato quando o `input_revision` lido no snapshot difere da revisão do seu último `resultado_score` válido. A derivação nunca altera `input_revision`.
+- [ ] T064 [US3] Implementar `<pkg>/scoring/application/score_candidates.py` e chamá-lo de `run_carioca` (T044) depois do cálculo:
+  - registrar a revisão usada por IOC;
+  - limpar `pending` só se o cálculo do IOC teve sucesso e `collection.api.current_input_revision` ainda for igual;
+  - não selecionar quais IOCs são pontuados nem reaproveitar resultados.
+- [ ] T065 [US3] Preservar as pendências em falhas e em mudanças concorrentes de entrada, registrando `last_attempt_at` e `last_error` seguro, em `<pkg>/entrypoints/scoring_sharing.py` e `<pkg>/scoring/infrastructure/persistence/candidates.py`.
+- [ ] T066 [P] [US3] Adicionar a métrica de candidatos em `tools/metrics/candidates.py` (pendentes, idade do mais antigo, último erro) com teste em `tests/unit/test_candidate_metrics.py`.
+
+**Checkpoint**: US3 rastreia mudanças relevantes, e a coleta não tem mais regra de
+negócio no repositório.
 
 ---
 
-## Phase 6: User Story 4 - Compartilhar IOCs com peers MISP (Priority: P3)
+## Phase 5: User Story 4 - Compartilhar IOCs com peers MISP (Priority: P3)
 
-**Goal**: Share only IOCs that are in the top-N, meet the peer minimum, are not in an enabled warninglist, and are authorized by native MISP controls, with peers and minimums read from the container environment at startup (FR-015 to FR-017, FR-027).
+**Goal**: enviar a peers MISP só IOCs da execução vigente que estejam no top-N,
+atinjam o mínimo do peer e não constem em warninglist, preservando a distribuição
+nativa do MISP (FR-015 a FR-017, FR-027). Começa pela etapa D9, que dá ao Pi-hole o
+molde de caso de uso que os peers vão seguir.
 
-**Independent Test**: Run eligible/ineligible IOCs through a test peer; confirm only eligible and MISP-authorized IOCs are synchronized, ambiguous sends are reconciled, delivery is not reported confirmed without evidence, invalid peer settings prevent sharing, and changes apply only after a restart.
+**Independent Test**: com um MISP isolado e um peer de sync, IOCs abaixo do mínimo,
+fora do top-N ou em warninglist não são enviados; timeout não vira confirmação; a
+repetição reconcilia pelo UUID; com score mais antigo que 48 horas, nada é enviado e
+o operador é avisado.
+
+### D9: caso de uso do Pi-hole
+
+- [ ] T067 [P] [US4] Criar `tests/unit/test_managed_entry.py` para `ManagedEntry.is_owned_by(remote: RemoteEntry)`, com os mesmos casos de `owned()` em `<pkg>/sharing/application/sync_pihole.py`: comentário igual à marca, `id` inteiro, `remote_id` igual quando conhecido, `groups == (0,)` e `enabled`.
+- [ ] T068 [US4] Criar `<pkg>/sharing/domain/pihole_entries.py` com `RemoteEntry(id, comment, groups, enabled)` e `ManagedEntry(hostname, marker, remote_id, status, evidence)`, com `is_owned_by`. Fazer `<pkg>/sharing/adapters/pihole.py` traduzir o JSON remoto para `RemoteEntry` em `lookup` e `<pkg>/sharing/infrastructure/persistence/pihole.py::entries` devolver `ManagedEntry`.
+- [ ] T069 [US4] Criar `plan_and_reconcile(as_of, decisions, sources, pihole, store, policy)` em `<pkg>/sharing/application/sync_pihole.py`, com as portas `DecisionsPort`, `SourcesPort`, `PiHolePort` e `PiHoleStore`. Movem para lá a montagem do conjunto desejado e a função `revalidate`, hoje em `<pkg>/sharing/infrastructure/scheduling/scheduler.py`. `reconcile` passa a usar `ManagedEntry.is_owned_by`, e `owned()` é removido.
+- [ ] T070 [US4] Reduzir `<pkg>/sharing/infrastructure/scheduling/scheduler.py` a um `PiHoleRunner` (lock consultivo `874203`, registro da política, transações `REPEATABLE READ` e implementação das portas sobre `collection.api` e `scoring.api`), sem importar `sharing.application`. O job em `<pkg>/entrypoints/scoring_sharing.py` abre o runner e chama `plan_and_reconcile`. T003, T051 e `tests/integration/test_pihole_sharing.py` continuam iguais. Remover o `ignore_imports` temporário de T060.
 
 ### Tests for User Story 4
 
-- [ ] T074 [P] [US4] Add unit tests for per-peer threshold boundaries, top-N, warninglist ineligibility with recorded reason, stale scores (older `as_of`) or invalid scores, and the 48-hour validity of the latest successfully completed scoring run (older than `SCORE_MAX_AGE_HOURS`, default 48 → sharing suspended with a WARNING log event and persisted warning; a failed newer run does not replace it; sharing resumes after a new successful run) in `tests/unit/test_sharing_eligibility.py`.
-- [ ] T075 [P] [US4] Add MISP sync contract tests for authorized/restricted distribution, publication status, asynchronous job status, ambiguous timeout reconciliation, partial acceptance by the peer (accepted items confirmed, rest kept pending) and retry in `tests/contract/test_misp_sharing.py`.
-- [ ] T076 [P] [US4] Add PostgreSQL integration tests for peer policy, effective-policy registration, sharing attempt states, retry idempotency, and eligibility changes before retry in `tests/integration/test_sharing_persistence.py`.
-- [ ] T077 [P] [US4] Add unit tests for peer environment parsing: minimum outside 0–100 or missing peer fields prevents sharing with an explicit error, secrets stay references, and the effective policy hash changes when settings change in `tests/unit/test_peer_configuration.py`.
+- [ ] T071 [P] [US4] Criar `tests/unit/test_sharing_eligibility.py`:
+  - limite do mínimo por peer (igual passa, abaixo não);
+  - top-N;
+  - warninglist em modo `fr027` torna inelegível e registra o motivo;
+  - score de execução anterior à vigente é inválido;
+  - execução vigente mais antiga que `SCORE_MAX_AGE_HOURS` (padrão 48) suspende o envio com WARNING e aviso persistido;
+  - execução falha mais nova não substitui a vigente;
+  - o envio retoma depois de nova execução bem-sucedida;
+  - distribuição (FR-016): IOC com observações `0` e `3` é elegível e sai com `3`; com `1` e `3`, sai com `1`; com `4` e o peer no sharing group, sai com `4` e o mesmo grupo; com `4` e o peer fora do grupo, ou só `0`, ou só eventos não publicados, fica inelegível com `distribution_not_allowed`; atributo com `5` herda a distribuição e o sharing group do evento; sem `event_sharing_group_id` em dado legado, `5` sobre evento `4` conta como `0`;
+  - em empate de distribuição entre observações que alcançam o peer, vale o desempate da agregação (`source_created_at`, depois `(source_instance_id, attribute_uuid)`).
+- [ ] T072 [P] [US4] Criar `tests/unit/test_peer_configuration.py`: mínimo fora de 0–100 ou campo de peer ausente impede o compartilhamento com erro explícito; segredos continuam como referências; o hash da política efetiva muda quando a configuração muda.
+- [ ] T073 [P] [US4] Criar `tests/contract/test_misp_sharing.py` com respostas MISP simuladas:
+  - criação idempotente do evento de saída por peer (`outbound_event_uuid`) e dos atributos com UUID v5 de `peer_id` + `ioc_id`;
+  - o evento de saída leva a distribuição máxima da política do peer, e cada atributo leva a distribuição (e o sharing group, se `4`) da observação que o tornou elegível, nunca mais ampla;
+  - quando a distribuição permitida diminui antes de uma nova tentativa, o atributo é atualizado ou removido antes da publicação;
+  - publicação registra `requested`, e `confirmed` só depois de ler o atributo no peer;
+  - timeout vira `ambiguous` e é reconciliado pela leitura antes de repetir;
+  - aceitação parcial confirma só os itens aceitos;
+  - IOC que deixou de ser elegível tem o atributo removido (soft delete) antes da publicação.
+- [ ] T074 [P] [US4] Criar `tests/integration/test_sharing_persistence.py` em PostgreSQL: registro da política efetiva, estados das tentativas, idempotência da repetição (uma tentativa corrente por `(peer_id, ioc_id)`), elegibilidade reavaliada antes de nova tentativa e papel do coletor sem escrita em `sharing`.
+- [ ] T075 [P] [US4] Criar `tests/unit/test_sharing_metrics.py` para as métricas da exportação: tentativas por estado, política efetiva e indicador de suspensão calculado pela idade da última execução bem-sucedida contra `SCORE_MAX_AGE_HOURS`.
 
 ### Implementation for User Story 4
 
-- [ ] T078 [P] [US4] Implement the read-only public surface in `<pkg>/scoring/api.py`: current valid score per IOC with configuration version, `as_of`, input revision, `rank` and `in_top_n` for the latest successfully completed run, plus that run's `finished_at` (the execução vigente) so `sharing` can enforce the 48-hour validity.
-- [ ] T079 [P] [US4] Implement per-peer Política de compartilhamento domain rules and threshold validation in `<pkg>/sharing/domain/sharing.py`, requiring a current valid score meeting the configured 0–100 minimum, top-N membership and absence from enabled warninglists.
-- [ ] T080 [P] [US4] Implement peer configuration loading from the scoring/sharing container environment in `<pkg>/sharing/infrastructure/peer_configuration.py`: peers, per-peer minimum (0–100) and secret references, validated at startup (invalid or missing settings stop sharing with an explicit error), and registration of the effective policy with hash and timestamp at each start; changes apply only after restart.
-- [ ] T081 [US4] Add Peer MISP, effective sharing policy, and sharing-attempt persistence mappings with Alembic migration in `<pkg>/sharing/infrastructure/persistence/models.py` and `migrations/versions/0005_sharing.py` (schema `sharing`; credential and secret-reference columns carry the PostgreSQL column comment `secret`); attempts reference the effective policy and the evaluated score.
-- [ ] T082 [US4] Implement eligibility evaluation in `<pkg>/sharing/application/share_eligible.py` using `scoring.api` and `collection.api` (warninglist), applying the peer minimum and top-N while preserving native MISP publication, distribution, sharing-group and authorization controls; record ineligibility reasons; suspend all new sends and record a WARNING log event plus a persisted warning when the latest successful scoring run is older than `SCORE_MAX_AGE_HOURS` (default 48, from environment, FR-016/FR-029); the sharing run frequency also comes from the environment, resuming only after a new successful run.
-- [ ] T083 [P] [US4] Implement the native MISP push synchronization adapter in `<pkg>/sharing/adapters/synchronization.py`, tracking asynchronous jobs separately from confirmed peer receipt; retry count and backoff come from the environment (T005).
-- [ ] T084 [US4] Implement sharing-attempt state transitions, UUID reconciliation after ambiguous timeout, bounded retries, handling of partial acceptance by the peer (confirm only accepted items, keep the rest pending), and re-evaluation of score, top-N, warninglist, score age and policy before retry in `<pkg>/sharing/application/share_eligible.py` and `<pkg>/sharing/infrastructure/persistence/repositories/sharing.py`.
-- [ ] T085 [P] [US4] Add unit tests in `tests/unit/test_sharing_metrics.py` for the sharing metrics of the export (attempts by state, effective policy, suspension flag computed from the age of the last successful scoring run versus `SCORE_MAX_AGE_HOURS`).
-- [ ] T086 [US4] Add the sharing metric functions to the observability export in `tools/metrics/sharing.py` (attempts by state, pending and failed counts, effective policy hash, suspended or not), reading only the exported tables.
-- [ ] T087 [US4] Compose eligible IOC sharing with the scoring job in `<pkg>/entrypoints/scoring_sharing.py` and record pending, failed, confirmed, ineligible and suspended (stale scores) states in the tables read by the export, in `<pkg>/sharing/application/sharing_status.py`.
 
-**Checkpoint**: Story 4 shares eligible IOCs idempotently, never treats a requested push as confirmed delivery, and refuses to start sharing with invalid peer settings.
+- [ ] T076 [P] [US4] Implementar `<pkg>/sharing/domain/sharing.py`: Política de compartilhamento por peer e a função de elegibilidade (score válido da execução vigente, maior ou igual ao mínimo de 0 a 100, `in_top_n` e ausência em warninglist `fr027`), com a regra de distribuição `DistributionDecision` de `data-model.md` ("Elegibilidade de distribuição": basta uma observação ativa, de evento publicado, com distribuição efetiva `1`, `2` ou `3`, ou `4` com o servidor do peer no sharing group; vale a mais restritiva, com `4` mais restritiva que `1`; `0` nunca alcança), e com motivos de inelegibilidade em `StrEnum` (`below_minimum`, `outside_top_n`, `warninglist`, `stale_score`, `no_valid_score`, `distribution_not_allowed`) e estados de tentativa em `StrEnum` (`eligible`, `requested`, `confirmed`, `failed`, `ambiguous`, `ineligible`, `suspended`).
+- [ ] T077 [P] [US4] Implementar `<pkg>/sharing/infrastructure/peer_configuration.py`, que lê do ambiente do container `scoring-sharing` (`MISP_PEERS_SECRET_REF` apontando para JSON com `peer_id`, `base_url`, `credential_secret_ref`, `minimum_priority_score`, `distribution` e `sharing_group_uuid` opcional), mais `SHARING_INTERVAL_SECONDS`, `SHARING_RETRY_ATTEMPTS` e `SHARING_RETRY_BACKOFF_SECONDS`. Valida na inicialização (configuração inválida ou ausente impede o compartilhamento com erro explícito) e registra a política efetiva com hash e timestamp a cada início; mudanças só valem após reiniciar.
+- [ ] T078 [US4] Criar os mapeamentos em `<pkg>/sharing/infrastructure/persistence/models.py` e a migration `migrations/versions/0010_misp_sharing.py` (schema `sharing`):
+  - `peer_misp`, com `credential_secret_ref` marcado com o comentário `secret`;
+  - `politica_compartilhamento`, com `policy_hash`, `loaded_at` e `peers` sem segredos;
+  - `tentativa_compartilhamento`, com `peer_id`, `ioc_id`, `scoring_run_id`, `policy_hash`, `outbound_attribute_uuid`, `permitting_source_instance_id`, `permitting_attribute_uuid`, `outbound_distribution` (0–4), `outbound_sharing_group_uuid` opcional, estado, `attempts`, `next_attempt_at`, `last_error` seguro, timestamps e uma tentativa corrente por `(peer_id, ioc_id)`.
+- [ ] T079 [P] [US4] Acrescentar em `tests/contract/test_misp_collection.py` o caso em que o evento tem `distribution=4` com `SharingGroup` e o atributo tem `distribution=5`, verificando que a observação guarda `event_sharing_group_id`, e em `tests/unit/test_input_revision.py` que mudar `event_sharing_group_id` não incrementa a revisão (não é entrada do CARIOCA).
+- [ ] T080 [US4] Guardar o sharing group do evento: campo `event_sharing_group_id: str | None` em `<pkg>/collection/adapters/schemas.py` (lido do `sharing_group_id` do evento) e em `<pkg>/collection/domain/observations.py`; coluna em `<pkg>/collection/infrastructure/persistence/models.py` e migration `migrations/versions/0011_event_sharing_group.py` (`down_revision` = `0010_misp_sharing`), nula para dados legados até a recoleta. Implementar `ObservationSnapshot.effective_distribution()` em `<pkg>/collection/domain/snapshots.py`: o menor entre `distribution` e `event_distribution`, com `5` herdando do evento, e o sharing group correspondente.
+- [ ] T081 [US4] Implementar o adaptador `<pkg>/sharing/adapters/synchronization.py` sobre `<pkg>/shared/misp/client.py`, conforme [contracts/misp-sharing.md](./contracts/misp-sharing.md) ("Revisão 2026-11-24"):
+  - garantir o evento de saída por peer, com a distribuição máxima da política;
+  - ler da instância local os sharing groups e seus servidores no início de cada rodada, para decidir se o peer pertence a um grupo;
+  - gravar em cada atributo a `outbound_distribution` e o `outbound_sharing_group_uuid` da decisão;
+  - fazer upsert e soft delete de atributos por UUID v5, com `to_ids=true`;
+  - publicar o evento e ler o atributo no peer pelo UUID;
+  - acompanhar jobs assíncronos separadamente da confirmação de recebimento;
+  - não registrar credenciais nem valores de indicador.
+- [ ] T082 [US4] Implementar o caso de uso `share_eligible(as_of, run, scores, warninglists, policy, peers, store)` em `<pkg>/sharing/application/share_eligible.py`, no molde de T069:
+  - lê `current_carioca_run` e `carioca_scores(top_n_only=True, min_score=<mínimo do peer>)`;
+  - suspende todos os envios novos, com WARNING e aviso persistido, se a execução vigente for mais antiga que `SCORE_MAX_AGE_HOURS`;
+  - registra os motivos de inelegibilidade;
+  - lê as observações do IOC por `collection.api` (`ObservationSnapshot.effective_distribution()`) e aplica `DistributionDecision` por peer;
+  - preserva os controles nativos de publicação, distribuição e sharing group.
+- [ ] T083 [US4] Implementar as transições de estado das tentativas, a reconciliação por UUID depois de timeout ambíguo, as retentativas limitadas com backoff, a aceitação parcial e a reavaliação de score, top-N, warninglist, distribuição, idade do score e política antes de cada nova tentativa, em `<pkg>/sharing/application/share_eligible.py` e `<pkg>/sharing/infrastructure/persistence/misp.py`.
+- [ ] T084 [US4] Ligar o job de peers em `<pkg>/entrypoints/scoring_sharing.py` (intervalo `SHARING_INTERVAL_SECONDS`, `max_instances=1`, lock consultivo próprio) e registrar os estados lidos pela exportação em `<pkg>/sharing/application/sharing_status.py`. Em `<pkg>/shared/configuration.py`, retirar `SHARING_MISP_ENABLED` de `NOT_IMPLEMENTED`: com `true`, exigir `SCORING_CARIOCA_ENABLED=true` e peers válidos. Atualizar `compose.yaml`, `.env.example` e `tests/integration/test_module_activation.py`.
+- [ ] T085 [P] [US4] Adicionar as métricas de compartilhamento em `tools/metrics/sharing.py` (tentativas por estado, pendentes e falhas, hash da política efetiva, suspenso ou não), lendo só tabelas exportadas, e registrá-las em `tools/export_observability.py`.
+
+**Checkpoint**: US4 envia somente IOCs elegíveis, com estados auditáveis, e Pi-hole e
+peers MISP seguem o mesmo molde de caso de uso.
 
 ---
 
-## Phase 7: Polish & Cross-Cutting Concerns
+## Phase 6: Polish & Cross-Cutting Concerns
 
-**Purpose**: Verify the integrated system, security posture, and runbook across all stories.
-
-- [ ] T088 [P] Add end-to-end Compose test fixtures and isolated MISP test configuration in `tests/e2e/conftest.py` and `tests/e2e/config/`.
-- [ ] T089 [P] Add migration-upgrade and clean-install verification for the complete PostgreSQL schema in `tests/integration/test_migrations.py`.
-- [X] T090 [P] Add an integration test in `tests/integration/test_database_roles.py` that the collector role cannot write `scoring` or `sharing`, the scoring/sharing role cannot write `collection`, and the `observer` role can read all schemas but write none.
-- [ ] T091 [P] Add a test in `tests/integration/test_source_equivalence.py` that equivalent domain data received from two distinct MISP sources yields identical scoring, candidate and sharing-eligibility decisions (FR-021, SC-010).
-- [ ] T092 [P] Add `tests/architecture/test_domain_vocabulary.py` that scans operator-facing messages and docstrings in `<pkg>/` for the avoided synonyms listed in `docs/domain-glossary.md` (SC-009).
-- [ ] T093 Update `specs/001-misp-ioc-scoring/quickstart.md` with final runnable Compose, pytest, benchmark, collection, scoring, `to_ids` filter, peer environment, and isolated sync-peer commands.
-- [ ] T094 Run `docker compose up --build` and `python -m pytest` following `specs/001-misp-ioc-scoring/quickstart.md`; fix failures in the relevant source/test files and record any unavailable MISP integration prerequisite.
-- [ ] T095 Review secrets handling, module boundaries, MISP distribution enforcement, dependency pins, and domain vocabulary across `<pkg>/`, `compose.yaml`, `.env.example`, and `docs/domain-glossary.md`.
+- [ ] T086 [P] (D10) Acrescentar a coluna "Nome no código" em `docs/domain-glossary.md` para cada termo, por exemplo: Observação de origem → `Observation` / `collection.observacao_origem`; Decisão de bloqueio → `BlockingDecision` / `scoring.decisao_bloqueio`; Entrada gerenciada → `ManagedEntry` / `sharing.pihole_entry`. Registrar que as tabelas `pihole_*` mantêm o nome em inglês por decisão do plano.
+- [ ] T087 [P] Criar `tests/architecture/test_domain_vocabulary.py`, que varre mensagens para operador e docstrings em `<pkg>/` em busca dos sinônimos a evitar de `docs/domain-glossary.md` (SC-009).
+- [ ] T088 [P] Criar `tests/integration/test_migrations.py`: instalação limpa de `0000` a `0010` e upgrade a partir de um banco em `0007` com dados, verificando que as decisões de bloqueio e as entradas do Pi-hole são preservadas.
+- [ ] T089 [P] Criar `tests/integration/test_source_equivalence.py`: dados de domínio equivalentes vindos de dois endpoints MISP distintos produzem as mesmas decisões de scoring, candidatos e elegibilidade (FR-021, SC-010).
+- [ ] T090 [P] Criar os fixtures end-to-end com Compose e a configuração de MISP isolado (com peer de sync e Pi-hole de teste) em `tests/e2e/conftest.py` e `tests/e2e/config/`.
+- [ ] T091 Atualizar `specs/001-misp-ioc-scoring/quickstart.md` e `README.md` com os comandos finais: Compose, pytest, benchmark, coleta, scoring CARIOCA, aprovação da configuração, Pi-hole `carioca`, variáveis dos peers e peer de sync isolado. Atualizar também `specs/002-bloqueio-simples/contracts/pihole.md`, `specs/002-bloqueio-simples/spec.md` (cenário 2 da US3 e FR-008) e `specs/002-bloqueio-simples/quickstart.md`: o modo `carioca` agora funciona e só envia domínios e hostnames, sem URL.
+- [ ] T092 Rodar `docker compose config`, `docker compose up --build`, `uv run --extra dev lint-imports` e `uv run --extra dev pytest -q` com `TEST_DATABASE_URL`, seguindo `quickstart.md`. Registrar em `specs/001-misp-ioc-scoring/quickstart.md` e `specs/002-bloqueio-simples/quickstart.md` os serviços ou verificações indisponíveis (inclui a T040 pendente da 002).
+- [ ] T093 Fazer a revisão de segurança com o agente `x9`: tratamento de segredos (peers, Pi-hole, banco), fronteiras de módulo, distribuição MISP, dependências fixadas em `uv.lock` e `pyproject.toml`, e ausência de valores de indicador em logs, em `<pkg>/`, `compose.yaml` e `.env.example`; registrar os achados em `docs/security-review.md`.
 
 ---
 
 ## Dependencies & Execution Order
 
-**Module rule**: dependencies between modules follow `collection` ← `scoring` ← `sharing`
-and cross only through `api.py` (T013/T014 enforce this). Table writes follow the
-ownership table in `plan.md`. The observability export in `tools/` is the only exception: it
-reads every schema through the read-only `observer` role by reflection and imports no module.
-
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependency; creates the Python project and container baseline.
-- **Foundational (Phase 2)**: Depends on Setup; blocks all user stories. The database roles (T008, including `observer`) are created here so the MVP and its integration tests run with the final roles.
-- **US1 (Phase 3)**: Depends on Foundational; delivers collection/normalization MVP, Rejeições de indicador, `collection/api.py` (T039) and the observability export (T038).
-- **US2 (Phase 4)**: Pure formula tasks (T040–T056) can use fixtures right after Foundational; T059–T063 need `collection.api` (T039). T062 extends the export built in T038. T048 can start anytime on the study MISP data and blocks only approving the configuration (T058) and any production scoring run.
-- **US3 (Phase 5)**: Depends on US1 persistence and US2's scoring run (T059); T072 edits T059's file, so it runs after T059.
-- **US4 (Phase 6)**: Depends on US1 provenance/warninglists and US2 valid scores with rank and run `finished_at`; checks pending/stale state before retry. T086 extends the export.
-- **Polish (Phase 7)**: Depends on all stories selected for release.
+- **Setup (T001–T002)**: sem dependências.
+- **Foundational (T003–T022)**: depende do Setup. T003 vem **antes** de qualquer
+  etapa D. Dentro da fase: T006–T011 (D1–D2) → T012–T014 (D3) → T015–T018 (D4) →
+  T019–T020 (D5) → T021 (D6) → T022. T004–T005 são independentes das etapas D.
+- **US2 (T023–T053)**: depende da Foundational. T033 (σ) pode começar já no Setup,
+  porque só bloqueia T043 (`approved: true`) e o nível 2 da SC-015 (T034); T034 fica
+  com skip explícito até lá.
+- **US3 (T054–T066)**: T054–T061 (D7–D8 e status) dependem só da Foundational;
+  T062–T065 dependem de T044 (job CARIOCA).
+- **US4 (T067–T085)**: T067–T070 (D9) dependem de T050 (Pi-hole `carioca`), para não
+  mexer duas vezes no mesmo scheduler; T071–T085 dependem de T047 (scoring.api); T080
+  depende de T007 (snapshots) e de T078 (migration `0010`, que vem antes da `0011`).
+- **Polish (T086–T093)**: depois das histórias desejadas.
 
 ### User Story Dependencies
 
-- **US1 (P1)**: Independent after Foundational; first deployable MVP.
-- **US2 (P2)**: Formula/domain work can proceed with fixtures; production integration depends on US1.
-- **US3 (P2)**: Depends on US1 observation updates and US2's scoring run; it never changes which IOCs are scored.
-- **US4 (P3)**: Depends on current US2 scores/rank and US1 data; re-evaluates pending/stale state before retry and suspends sharing when the latest successful scoring run is older than `SCORE_MAX_AGE_HOURS` (default 48).
+- **US2**: fundação concluída. É o núcleo das demais.
+- **US3**: a refatoração da coleta (D7–D8) é independente; os candidatos precisam do
+  job da US2.
+- **US4**: precisa de `scoring.api` (T047) e do Pi-hole refatorado (D9).
 
 ### Within Each User Story
 
-- Tests are included because the constitution requires automated coverage; write them before implementation and verify failure against the missing behavior.
-- Domain rules precede persistence/application integration where possible.
-- MISP external payloads remain in adapter schemas; domain logic uses canonical domain terms.
-- Do not clear checkpoints or candidates on partial/failed processing.
-- Never read the system clock inside scoring domain code; use the run's `as_of`.
-- Never write raw indicator values to logs or error messages; they live only in Rejeição de indicador and, neutralized as text, in the export.
-- There is no CLI, API or UI: operation is by environment variables and observation is by logs and the Excel export.
-- A task marked `[P]` must not depend on an unfinished task in the same phase (for example T051 and T053 wait for T049).
+- Testes antes da implementação correspondente; nas etapas D, o teste de
+  caracterização T003 é a referência.
+- Domínio → persistência e migration → caso de uso → infraestrutura do job →
+  entrypoint → métricas.
+- Mesmo arquivo nunca em paralelo: `<pkg>/collection/api.py` (T008, T011, T014, T017,
+  T018), `<pkg>/scoring/api.py` (T020, T047, T048), `<pkg>/shared/configuration.py`
+  (T046, T050, T084), `<pkg>/entrypoints/scoring_sharing.py` (T046, T065, T084) e
+  `<pkg>/sharing/infrastructure/scheduling/scheduler.py` (T010, T017, T020, T050, T070).
 
 ### Parallel Opportunities
 
-- Setup T002–T004 touch separate files and can proceed in parallel after T001; T003 and T004 are extended later by T008, T005 and T080, which therefore run after them.
-- Foundational T009, T010, T011 and T014 are independent of T005–T008.
-- In US1, T016–T023 can be authored in parallel; T024–T028 are independent domain/schema files.
-- In US2, T040–T047 are independent tests; T048 and T049 touch separate files.
-- In US3, T064–T066 are separate tests.
-- In US4, T074–T077 are independent tests; T078, T079, T080 and T083 are separate modules.
-- Cross-story parallelism is limited: US2 formula work can begin with fixtures alongside US1, but integration phases respect the dependency graph.
+- Setup: T002 com T001.
+- Foundational: T004, T006, T012, T015 e T018 (arquivos de teste e de domínio
+  distintos) assim que T003 estiver verde.
+- US2: todos os testes T023–T032; T033, T035, T049 e T053.
+- US3: T054–T056 e T066.
+- US4: T067 e T071–T075; T076, T077 e T085.
+- Polish: T086–T090.
+- US4: T079 junto com os demais testes da história.
 
-## Parallel Example: User Story 1
+---
 
-```text
-After T001/T005–T007 are ready:
-T016 tests/unit/test_normalization.py
-T017 tests/contract/test_misp_collection.py
-T018 tests/integration/test_collection_persistence.py
-T019 tests/unit/test_event_aggregates.py
-T020 tests/integration/test_rejections.py
-T021 tests/unit/test_observability_export.py
-T022 tests/integration/test_observability_export_db.py
-T023 tests/unit/test_warninglist_matching.py
-T024 src/misp_ioc_scoring/collection/domain/indicators.py
-T025 src/misp_ioc_scoring/collection/domain/observations.py
-T026 src/misp_ioc_scoring/collection/adapters/schemas.py
-T027 src/misp_ioc_scoring/collection/domain/rejections.py
-T028 src/misp_ioc_scoring/collection/domain/warninglists.py
+## Parallel Example: User Story 2
+
+```bash
+# Testes de domínio do CARIOCA, todos em arquivos distintos:
+Task: "T023 [US2] tests/unit/test_carioca_components.py"
+Task: "T024 [US2] tests/unit/test_cade.py"
+Task: "T025 [US2] tests/unit/test_feed_rank.py"
+Task: "T026 [US2] tests/unit/test_population_priority.py"
+Task: "T027 [US2] tests/unit/test_aggregation_selection.py"
+Task: "T028 [US2] tests/unit/test_carioca_configuration.py"
+
+# Em paralelo, fora do caminho crítico:
+Task: "T033 [US2] docs/sigma-estimator-evaluation.md"
+Task: "T035 [US2] <pkg>/scoring/domain/carioca_configuration.py"
 ```
+
+## Parallel Example: Foundational (depois de T003)
+
+```bash
+Task: "T004 tests/unit/test_input_revision.py"
+Task: "T006 tests/unit/test_source_snapshot.py"
+Task: "T012 tests/unit/test_warninglist_index.py"
+Task: "T015 tests/unit/test_decay.py"
+```
+
+---
 
 ## Implementation Strategy
 
-### MVP First (User Story 1 Only)
+### MVP: Foundational + US2
 
-1. Complete Setup and Foundational phases (T001–T015).
-2. Complete US1 (T016–T039): collection, normalization, rejections, provenance, `to_ids` filtering, warninglist entries, checkpointing, the observability export and tests.
-3. Validate against PostgreSQL and MISP fixtures, then stop for an MVP review.
+1. Setup (T001–T002) e o teste de caracterização (T003).
+2. DDD de base D1–D6 (T006–T022), um commit por etapa, sempre com T003 verde.
+3. US2 (T023–T053). Validar os casos do Notion e o benchmark.
+4. **Parar e validar**: com uma configuração de teste aprovada, o job diário gera
+   scores explicáveis e o Pi-hole `carioca` envia só domínios acima do corte. A
+   ativação em produção espera a aprovação de σ (T033 → T043).
 
 ### Incremental Delivery
 
-1. Add US2: formulas, population scoring, rank/top-N, `as_of`, explanation, scoring metrics and the 1-hour benchmark; start T048 early. Production scoring stays blocked until the σ estimator and `config/carioca-orgc-proxy-v3.yaml` are approved.
-2. Add US3: `input_revision`-driven candidate tracking (traceability only) and its metric.
-3. Add US4: peer settings from the environment, top-N, peer minimum, warninglist-aware sharing, the configurable score validity (default 48 h) and the sharing metrics.
-4. Complete isolated end-to-end, role, equivalence and vocabulary checks, and the security review.
+1. Foundational → código atual mais limpo, mesmo comportamento (T003 verde).
+2. US2 → scores CARIOCA e Pi-hole `carioca`.
+3. US3 → coleta sem regra no repositório, e rastreabilidade de candidatos.
+4. US4 → Pi-hole no molde de caso de uso e peers MISP.
+5. Polish → glossário, e2e, migrations, segurança e quickstart.
 
-### Parallel Team Strategy
+### Agentes
 
-1. Complete Setup/Foundational together.
-2. US1 owns collection/persistence and the export; a separate contributor may prepare US2 formula tests and pure scoring functions after shared foundations are ready, and own T048.
-3. Start US3 only after observation persistence and the scoring run exist.
-4. Start US4 policy tests/adapters after score, rank and provenance contracts are stable.
+- `bigode` implementa; `banza` aprova o desenho de US4 (evento de saída por peer)
+  antes de T081; `x9` faz T093; `escritor` revisa T086 e T091.
+
+---
 
 ## Notes
 
-- `[P]` tasks modify separate files and have no dependency on unfinished work.
-- Every user-story task uses its story label; setup, foundational and polish tasks do not.
-- CARIOCA parameters absent from the publication (σ estimator, CADE normalization, FeedRank
-  proxy, `top_n`) must be approved and explicitly configured; tasks must not introduce
-  silent defaults. MinMax with equal values is fixed at 50.
-- The FeedRank proxy (`orgc`) is a known limitation to expose in explanations and the paper.
-- Peers, per-peer minimums and all times and frequencies live in the container environment and apply only after a restart.
-- A "warning to the operator" is a structured WARNING log event plus a persisted record shown by the export.
-- MISP push completion is asynchronous; a queued job is not proof of peer receipt.
-- `tasks.md` is an implementation checklist; do not mark a task complete until its
-  acceptance behavior is verified.
+- `[P]` = arquivos diferentes, sem dependência pendente.
+- Cada etapa D é um commit próprio (Conventional Commits, por exemplo
+  `refactor(collection): devolve tipos de domínio na api`).
+- Não ativar `SCORING_CARIOCA_ENABLED` nem `SHARING_MISP_ENABLED` em produção antes de
+  T043 aprovado e da validação de US4 contra um MISP isolado.

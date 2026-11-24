@@ -188,3 +188,207 @@ um worker de scoring/compartilhamento, todos ligados pela mesma base persistente
 código é um monolito modular (ver `plan.md`).
 Parâmetros operacionais (cadências, endpoint, peers, limites de score e parâmetros
 CARIOCA) são configuração versionada/identificável, não valores ocultos no código.
+
+## Revisão 2026-11-24
+
+Retomada de US2–US4 depois da coleta e da feature 002. Fonte principal das fórmulas e
+dos casos de referência: página do Notion "CARIOCA — fórmulas e exemplos reais"
+(contas executadas em 2026-11-10, ~18:11 UTC, sobre o MISP de estudos).
+
+### Unidade de cálculo e agregação no IOC
+
+- **Decisão**: calcular Source, Event e Attribute por observação de origem ativa com
+  `to_ids=true`; o Resultado de score do IOC lógico é o da observação de maior
+  prioridade (decisão do dono em 2026-11-24). Em empate, vence a observação mais antiga
+  (`source_created_at`) e depois o menor `(source_instance_id, attribute_uuid)`.
+- **Racional**: a referência trata "cada IoC = atributo MISP", que herda a `orgc` e o
+  evento do atributo. Calcular por observação reproduz exatamente os casos de uma
+  observação (por exemplo, `hotels-stays55501.com`). Agregar pelo máximo mantém o IOC
+  lógico da 001 (FR-005) e evita que o mesmo valor ocupe várias posições do top-N.
+- **Alternativas consideradas**: usar só a primeira publicação, coerente com o FeedRank
+  mas que ignora eventos posteriores de melhor qualidade; ou ranquear por observação,
+  fiel ao artigo mas que duplica valores no top-N e no envio. Ambas foram descartadas.
+- **Consequência**: o corte do top-N do projeto não é diretamente comparável ao do
+  Notion (top 20 mil atributos, corte 73,48 no cenário v3).
+
+### URL e grupos de decaimento
+
+- **Decisão**: `url` fica fora dos grupos de decaimento no CARIOCA e é excluída com
+  motivo (decisão do dono em 2026-11-24). A lista de tipos por grupo é fechada e
+  versionada na configuração, conforme a tabela do Notion §2.1.
+- **Racional**: fidelidade ao artigo e à população de referência (271.100 válidos, todos
+  `domain`). O decaimento de URL da 002 é uma regra do bloqueio simples, não do CARIOCA.
+- **Consequência**: o Pi-hole no modo `carioca` só recebe domínios e hostnames; URLs
+  continuam disponíveis pelo modo `default`.
+- **Alternativa**: mapear `url` para o grupo domain; descartada por mudar a população e o
+  MinMax sem respaldo do artigo.
+
+### Filtro `to_ids` no scoring
+
+- **Decisão**: o CARIOCA considera apenas observações `to_ids=true` em todos os
+  componentes, independentemente de `MISP_TO_IDS_ONLY`.
+- **Racional**: a 002 recomenda `MISP_TO_IDS_ONLY=false` para ter decisões de bloqueio
+  sobre todos os atributos. Sem esse filtro no scoring, os atributos de contexto
+  mudariam CADE, Event e Source, e o score dependeria da configuração da coleta.
+
+### Normalizações
+
+- **Decisão**: `CADE'` por MinMax entre todos os eventos com observação `to_ids` ativa;
+  `E'` por MinMax entre os eventos com ao menos uma observação válida; `A'` e `S'` entre
+  as observações válidas. Em qualquer MinMax com máximo = mínimo, o valor é 50.
+- **Racional**: é o cenário "v2 + CADE MinMax + só válidos" do Notion (§3.1 e §5.2), que é
+  a proposta v3 que o projeto implementa.
+- **Referência para testes**: `hotels-stays55501.com` com CADE bruto 6,5218, CADE'
+  19,544, E 31,017, E' 60,532, A 69,687, A' 66,984, S' 100 e P 75,838 (insumos da página,
+  com `as_of` fixo).
+
+### Leitura do snapshot da coleta
+
+- **Decisão**: adicionar a `collection.api` uma leitura única, em transação
+  `REPEATABLE READ`, que devolve observações ativas, revisões dos IOCs e entradas de
+  warninglist suportadas. O casamento com warninglist é feito em memória, com índices por
+  tipo (conjunto de valores exatos, árvore de sufixos de hostname e redes CIDR).
+- **Racional**: hoje `active_iocs()` é chamada por `event_category_counts()` e
+  `first_publications()`, o que lê a base três vezes em momentos diferentes (snapshot
+  instável). Além disso, `warninglist_membership()` varre todas as entradas a cada IOC,
+  o que dá O(IOCs × entradas). Com 270 mil IOCs isso compromete SC-011 e o determinismo.
+- **Alternativa**: cálculo em SQL. Continua possível se o benchmark mostrar que a
+  memória não basta; a decisão fica registrada no resultado do benchmark.
+
+### PageRank sem dependência nova
+
+- **Decisão**: PageRank por iteração de potência em Python puro (0,85; 50 iterações;
+  tratamento explícito de nós sem saída distribuindo a massa uniformemente).
+- **Racional**: o grafo tem a ordem de dezenas de organizações (27 no MISP de estudos),
+  então não há ganho em adicionar networkx ou scipy. O tratamento de nós sem saída
+  precisa ser explícito e testado, porque muda os valores. A versão da referência deve
+  ser confirmada contra a tabela do Notion §4 (por exemplo, PageRank do CIRCL 0,40966).
+
+### Pi-hole no modo `carioca`
+
+- **Decisão**: com CARIOCA implementado, `PIHOLE_SCORE_MODEL=carioca` lê o score vigente
+  por `scoring.api`, aplica `PIHOLE_CARIOCA_MIN_SCORE`, a validade de
+  `SCORE_MAX_AGE_HOURS` e as regras estritas de warninglist e snapshot da 002, sem top-N.
+  Sem configuração aprovada ou execução vigente, não envia nada e avisa o operador.
+
+### Compartilhamento com peers MISP
+
+- **Decisão**: o push nativo do MISP sincroniza eventos publicados, não atributos
+  isolados. O adaptador mantém, na instância local de saída, um evento de saída por peer
+  com os atributos elegíveis (UUIDs estáveis derivados do IOC e do peer). Publica esse
+  evento e confia ao sync nativo a entrega, com distribuição e sharing group herdados da
+  política. A confirmação vem da leitura do evento no peer pelo UUID.
+- **Racional**: preserva os controles nativos (FR-016, contrato de compartilhamento) sem
+  criar um segundo protocolo de replicação. UUIDs determinísticos tornam a repetição
+  idempotente e permitem reconciliar timeouts ambíguos.
+- **Distribuição por atributo**: o evento de saída leva a distribuição máxima da
+  política do peer; cada atributo leva a distribuição efetiva da observação que o
+  tornou elegível (ver "Distribuição no envio a peers"). Como o MISP aplica o menor
+  valor entre evento e atributo, o atributo nunca sai mais amplo que a origem.
+- **Pendência**: validar o desenho contra um MISP isolado com peer de sync (T075/T088)
+  antes de ativar em produção. A conta de sync dedicada e as regras de push por peer são
+  configuradas no MISP, não pelo projeto.
+
+### Ajuste de DDD na mesma implementação
+
+- **Decisão**: corrigir os desvios de DDD do código existente (etapas D1–D10 do plano)
+  dentro desta implementação, ligando cada etapa à frente que depende dela: D1–D6 antes
+  do CARIOCA, D7–D8 com os candidatos, D9 com os peers MISP e D10 no polimento.
+- **Racional**: o CARIOCA, os candidatos e os peers MISP vão reutilizar exatamente as
+  peças com problema: o snapshot da coleta, o matcher de warninglist, o decaimento, o
+  `input_revision` e o molde de caso de uso do Pi-hole. Corrigir antes evita copiar o
+  desvio para o código novo e evita duas versões da mesma regra.
+- **Alternativas consideradas**: uma feature separada só de refatoração, depois da
+  US2–US4, descartada porque o código novo nasceria sobre as peças erradas. Uma
+  reescrita total da coleta e do Pi-hole, descartada por risco sem ganho de domínio.
+
+### Refatoração com rede de segurança
+
+- **Decisão**: escrever um teste de caracterização antes de D1. Sobre uma fixture fixa
+  de observações, warninglists, rejeições e endpoints, com `as_of` fixo, ele grava as
+  decisões de bloqueio e o conjunto desejado de hostnames do Pi-hole. Cada etapa deve
+  manter esse resultado idêntico.
+- **Racional**: a 002 está em produção, e a refatoração não pode mudar decisões. O
+  teste compara o resultado inteiro, não só casos isolados.
+
+### Tipos de domínio na API pública
+
+- **Decisão**: `collection.api` e `scoring.api` devolvem dataclasses congeladas
+  definidas no domínio do módulo dono; nunca modelos SQLAlchemy nem `RowMapping`. Um
+  teste de arquitetura falha se uma função pública devolver instância de `Base`.
+- **Racional**: o plano já proíbe a leitura entre módulos pelos modelos do outro; hoje
+  `blocking_snapshot` viola isso e o import-linter não detecta, porque o import do
+  modelo acontece dentro de `collection`.
+
+### Enums e valores gravados
+
+- **Decisão**: `StrEnum` para motivos de decisão e modelos de score, com os mesmos
+  valores das strings atuais (`eligible`, `removed`, `type`, `to_ids`, `analysis`,
+  `warninglist`, `expired`, `indeterminate`, `rejected`, `stale`; `default`,
+  `carioca`).
+- **Racional**: dá nome e checagem aos conceitos sem migration, porque o banco continua
+  recebendo as mesmas strings; a view `decisao_bloqueio_efetiva` e a exportação não
+  mudam.
+
+### Nomes de tabelas
+
+- **Decisão**: não renomear `pihole_policy`, `pihole_entry` e `pihole_attempt`.
+  Tabelas novas seguem o português do plano. O glossário ganha a coluna "nome no
+  código" para ligar termo, classe e tabela.
+- **Racional**: renomear exige migration, muda as abas da exportação e não melhora o
+  modelo; a ponte no glossário resolve a consistência de linguagem (princípio VI).
+
+### Distribuição no envio a peers
+
+- **Decisão** (clarificação 2026-11-24): um IOC é elegível para um peer se ao menos uma
+  Observação de origem ativa vem de evento publicado e alcança o peer. A distribuição
+  efetiva da observação é a menor entre a do atributo e a do evento (`5` = herda do
+  evento). Ela alcança um peer de sync quando é `1` (esta comunidade), `2`
+  (comunidades conectadas) ou `3` (todas as comunidades), ou quando é `4` (sharing
+  group) e o servidor do peer pertence a esse sharing group. `0` (só a organização)
+  nunca alcança. Entre as observações que alcançam, usa-se a de distribuição mais
+  restritiva, com o mesmo desempate da agregação; o atributo de saída recebe essa
+  distribuição e, se for `4`, o mesmo sharing group.
+- **Racional**: atende à escolha do dono de não bloquear o envio por causa de uma
+  origem restrita e, ao mesmo tempo, à FR-016, porque nenhum atributo sai com
+  distribuição mais ampla que a da observação usada. Escolher a mais restritiva entre
+  as permitidas é o menor alcance que ainda cumpre a regra.
+- **Verificação pendente**: a semântica de push por nível (`1` e `2` rebaixados no
+  destino; `4` só para servidores do sharing group) segue o guia de compartilhamento
+  do MISP e deve ser confirmada no teste de contrato e no MISP isolado. A pertinência
+  do peer a um sharing group é lida da instância local (sharing groups e seus
+  servidores) no início de cada rodada.
+- **Lacuna na coleta**: `observacao_origem` guarda só o `sharing_group_id` do atributo.
+  A coleta passa a guardar também o do evento (`event_sharing_group_id`, migration
+  `0011`); até a recoleta preencher o campo, a observação com distribuição herdada de
+  um evento `4` é tratada como `0`, ou seja, não alcança o peer.
+- **Alternativas consideradas**: exigir que todas as observações permitam (mais seguro,
+  recusado pelo dono) e usar só a observação vencedora (ignora restrições das demais).
+
+### Observação sem `orgc` ou não publicada
+
+- **Decisão** (clarificação 2026-11-24): fica fora da população com motivo
+  `missing_data` (sem `orgc`) ou `unpublished`; o IOC é excluído só se nenhuma outra
+  observação for válida.
+- **Racional**: o FeedRank só credita observações publicadas com `orgc`; dar Source 0
+  inventaria um valor sem evidência (FR-014).
+
+### Valores de referência em dois níveis
+
+- **Decisão** (clarificação 2026-11-24): testes de fórmula recebem σ como entrada e
+  conferem os números do Notion (σ populacional bruto, 917,29 em network activity). A
+  SC-015 usa os valores recalculados com o estimador aprovado, que a avaliação de σ
+  (`docs/sigma-estimator-evaluation.md`) publica com os mesmos casos
+  (`hotels-stays55501.com` e evento 19) e que o dono aprova junto com o estimador.
+- **Racional**: os números do Notion vêm do estimador que a FR-023 proíbe como padrão;
+  sem o segundo nível, o estimador aprovado ficaria sem verificação de ponta a ponta.
+
+### Composição nos entrypoints
+
+- **Decisão**: os casos de uso são chamados pelos entrypoints, que montam os
+  adaptadores de infraestrutura. A infraestrutura implementa portas e não importa
+  `application`, e o contrato import-linter correspondente vale nos três módulos.
+- **Racional**: a análise de 2026-11-24 mostrou que o plano anterior deixava
+  `simple_blocking.run`, o job CARIOCA e o `scheduler.sync` chamando a aplicação a
+  partir da infraestrutura, o que quebraria o próprio contrato do ajuste D8. Os
+  entrypoints já são, pelo plano, a única camada autorizada a conhecer tudo.

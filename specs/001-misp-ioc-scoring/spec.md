@@ -95,6 +95,31 @@
   avisos ao operador são eventos de log estruturado de nível WARNING com registro
   persistido, visíveis nessa exportação.
 
+### Session 2026-11-24
+
+- Q: Como sai o score de um IOC com várias observações (eventos ou organizações
+  diferentes)? → A: Source, Event e Attribute são calculados por Observação de origem
+  ativa; o Resultado de score do IOC é o da observação de maior prioridade (Observação
+  vencedora), com desempate pela observação mais antiga e depois pelo menor par
+  (instância de origem, UUID do atributo). Rank e top-N são por IOC lógico.
+- Q: URL entra na população válida do CARIOCA? → A: Não; como no artigo, `url` não tem
+  grupo de decaimento no CARIOCA e é excluída com motivo. O decaimento de URL da feature
+  002 vale só para o bloqueio simples.
+- Q: Quais observações entram no cálculo CARIOCA quando a coleta traz também atributos
+  `to_ids=false`? → A: Só observações `to_ids=true`, em todos os componentes (população,
+  CADE e FeedRank), para que o score não dependa do filtro de coleta.
+- Q: Quando um IOC com várias observações e distribuições diferentes pode ser enviado a
+  um peer? → A: Basta uma observação ativa, de evento publicado, cuja distribuição ou
+  sharing group alcance o peer; o envio usa a distribuição dessa observação, nunca uma
+  mais ampla.
+- Q: Como tratar observação sem organização criadora (`orgc`) ou de evento não
+  publicado? → A: Fica fora da população, com motivo `missing_data` (sem `orgc`) ou
+  `unpublished`; o IOC só é excluído se nenhuma outra observação for válida.
+- Q: O que vale como resultado esperado do CADE, se os valores do Notion usam o σ
+  populacional bruto? → A: Dois níveis: as fórmulas são verificadas com σ dado como
+  entrada, contra os valores do Notion; a SC-015 usa os valores recalculados com o σ
+  aprovado, registrados e aprovados na avaliação do estimador de σ.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Coletar e normalizar IOCs do MISP (Priority: P1)
@@ -249,6 +274,8 @@ duplicações em uma repetição segura.
   marcação do mesmo candidato.
 - O peer MISP rejeita um IOC, fica indisponível ou aceita apenas parte do envio.
 - Um IOC deixa de atender à política de compartilhamento antes de uma nova tentativa.
+- Um IOC tem observações com distribuições diferentes (por exemplo, uma restrita à
+  organização e outra aberta a todas as comunidades).
 - Uma nova tentativa ocorre após uma falha sem duplicar IOCs já aceitos pelo peer.
 - Credenciais ou conteúdo externo aparecem em mensagens de erro ou registros de
   operação.
@@ -303,7 +330,9 @@ duplicações em uma repetição segura.
   incompleta.
 - **FR-013**: Cada score MUST identificar os dados de entrada e critérios que
   contribuíram para o resultado, e MUST ser reprodutível para entradas e critérios
-  idênticos.
+  idênticos. Os componentes são calculados por Observação de origem; o score do IOC é
+  o da Observação vencedora (maior prioridade, com desempate determinístico), que MUST
+  constar da explicação junto com o número de observações avaliadas.
 - **FR-014**: Quando os dados necessários ao cálculo estiverem ausentes ou inválidos,
   o sistema MUST indicar a insuficiência e MUST NOT inventar ou apresentar um score
   válido.
@@ -320,7 +349,10 @@ duplicações em uma repetição segura.
   configurado, que estejam entre os N maiores scores válidos da execução vigente (N
   configurável explicitamente, sem valor padrão implícito) e cuja distribuição seja
   permitida pelas regras de acesso e distribuição nativas do MISP; os demais MUST NOT
-  ser enviados a esse peer. A "execução vigente" MUST ser a última execução de scoring
+  ser enviados a esse peer. A distribuição é permitida quando ao menos uma Observação de
+  origem ativa do IOC vem de evento publicado e tem distribuição ou sharing group que
+  alcança o peer; o envio MUST usar a distribuição dessa observação e MUST NOT usar uma
+  distribuição mais ampla que a dela. A "execução vigente" MUST ser a última execução de scoring
   concluída com sucesso; se ela tiver mais do que a validade configurada (48 horas por
   padrão, FR-029), o compartilhamento MUST ser suspenso com aviso ao operador, e novos
   envios só ocorrem após uma execução bem-sucedida.
@@ -340,7 +372,12 @@ duplicações em uma repetição segura.
   como MISP representa ou transporta os dados; fontes MISP distintas com os mesmos
   dados de domínio MUST produzir as mesmas decisões de domínio.
 - **FR-022**: A população válida, ranqueada e usada na normalização MinMax, MUST conter somente
-  IOCs de tipo suportado pelo algoritmo e não expirados (score de frescor maior que 0);
+  IOCs de tipo suportado pelo algoritmo e não expirados (score de frescor maior que 0),
+  avaliados sobre Observações de origem com `to_ids=true`. Os tipos suportados são os
+  dos grupos hash, ip e domain da Configuração CARIOCA; `url` não pertence a nenhum
+  grupo. Observações sem organização criadora (`orgc`) ou de evento não publicado
+  MUST ficar fora da população, com motivo registrado; o IOC só é excluído se nenhuma
+  outra observação for válida;
   IOCs fora dessa população MUST NOT receber score válido e MUST ter o motivo da
   exclusão registrado.
 - **FR-023**: O CADE MUST usar uma estimativa de σ por categoria robusta a eventos
@@ -424,6 +461,10 @@ duplicações em uma repetição segura.
   de suporte para avaliação.
 - **Resultado de score**: Score calculado para um IOC, com os dados e critérios que
   explicam o resultado.
+- **Avaliação de observação**: Componentes Source, Event e Attribute calculados para uma
+  Observação de origem numa execução de scoring.
+- **Observação vencedora**: A Avaliação de observação de maior prioridade de um IOC,
+  cujo resultado se torna o Resultado de score desse IOC.
 - **Candidato a re-scoring**: Registro de rastreabilidade associado ao IOC lógico que
   indica que seus dados de entrada mudaram desde o último score bem-sucedido; permanece
   pendente até um recálculo bem-sucedido sobre a revisão vigente. Não determina quais
@@ -482,8 +523,11 @@ duplicações em uma repetição segura.
 - **SC-014**: Com o último scoring bem-sucedido mais antigo que a validade configurada,
   0 IOCs são enviados e o aviso fica registrado; após uma nova execução bem-sucedida, os
   envios retomam.
-- **SC-015**: Com o estimador de σ aprovado, o CADE dos eventos de referência coincide
-  com os valores esperados; sem estimador aprovado, nenhum score é gerado.
+- **SC-015**: Com σ dado como entrada, 100% dos casos de referência do Notion
+  (CADE, Event, Attribute e prioridade) coincidem com os valores publicados; com o
+  estimador de σ aprovado, o CADE dos eventos de referência coincide com os valores
+  recalculados e aprovados na avaliação do estimador; sem estimador aprovado, nenhum
+  score é gerado.
 - **SC-016**: O Source score das organizações de referência coincide com os valores
   esperados (primeiro a publicar, PageRank e MinMax).
 - **SC-017**: Com o filtro de acionabilidade ativo, 100% dos atributos sem `to_ids`

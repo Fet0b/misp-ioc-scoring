@@ -55,3 +55,14 @@ para uma planilha Excel. Não há CLI, API nem interface de usuário (FR-028).
 - Nenhum segredo na planilha; abas truncadas são identificadas.
 - Um teste de integração roda a exportação sobre o banco de teste com o papel `observer`
   (SC-012).
+
+## Revisão 2026-11-24
+
+As tabelas novas (`scoring.configuracao_carioca`, `execucao_scoring`,
+`estatisticas_populacao`, `avaliacao_observacao`, `resultado_score`, `exclusao_score`,
+`candidato_rescoring` e `sharing.peer_misp`, `politica_compartilhamento`,
+`tentativa_compartilhamento`) entram automaticamente como abas, porque a exportação lê o
+banco por reflexão. As métricas novas ficam em `tools/metrics/scoring.py`,
+`candidates.py` e `sharing.py`, lendo só tabelas exportadas. `avaliacao_observacao`
+pode passar do limite de linhas por aba; nesse caso vale a regra de truncamento
+sinalizado.

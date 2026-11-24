@@ -241,3 +241,129 @@ Peer MISP 1 ─── * Tentativa de compartilhamento * ─── 1 IOC
    uma por origem e motivo.
 10. Só scores da execução vigente (concluída com sucesso há no máximo 48 horas) podem
     originar novos envios; acima disso o compartilhamento é suspenso.
+
+## Revisão 2026-11-24
+
+Alinha o modelo às decisões da revisão do plano e ao que já existe no banco. Os
+detalhes e a justificativa estão em `research.md`, seção "Revisão 2026-11-24".
+
+### Já existente (não recriar)
+
+- `collection`: `ioc`, `endpoint_coleta` (com `generation` da 002), `observacao_origem`
+  (com `attribute_id` e `published`), `rejeicao_indicador`, `entrada_warninglist`.
+- `scoring`: `execucao_bloqueio`, `decisao_bloqueio` (feature 002).
+- `sharing`: `pihole_policy`, `pihole_entry`, `pihole_attempt` (feature 002).
+
+### Configuração CARIOCA (acréscimos)
+
+- `type_groups`: mapeamento fechado tipo MISP → grupo (`hash`, `ip`, `domain`), com os
+  tipos da tabela do Notion §2.1. `url` não pertence a nenhum grupo. Tipos compostos
+  `filename|<hash>` entram em hash.
+- `scoring_to_ids_only: true`: só observações `to_ids=true` entram em qualquer
+  componente.
+- `aggregation: max-observation` com desempate `source_created_at` e depois
+  `(source_instance_id, attribute_uuid)`.
+- `normalization_scopes`: `cade` = eventos com observação `to_ids` ativa; `event` =
+  eventos com observação válida; `attribute` e `source` = observações válidas.
+- `feed_rank`: `damping 0,85`, `iterations 50`, `dangling: uniform`, pesos 50/50.
+- `approved`, `approved_by`, `approved_at`, `evidence_ref` (avaliação de σ) e
+  `content_hash` (SHA-256 do YAML canônico). Ativar o scoring exige `approved: true`.
+
+### Avaliação de observação (nova, `scoring.avaliacao_observacao`)
+
+Componentes de cada observação válida numa execução; é o que permite explicar e
+reproduzir o score do IOC.
+
+- `scoring_run_id`, `ioc_id`, `source_instance_id`, `attribute_uuid`, `event_uuid`,
+  `orgc_uuid`.
+- `age_days`, `attribute_raw`, `attribute_norm`; `threat_level`, `analysis`,
+  `cade_raw`, `cade_norm`, `event_raw`, `event_norm`; `source_value`, `source_norm`;
+  `priority`.
+- `minmax_degenerate`: lista dos componentes em que máximo = mínimo (valor 50).
+- **Unicidade**: `(scoring_run_id, source_instance_id, attribute_uuid)`.
+
+### Resultado de score (ajustes)
+
+- Ganha `winning_source_instance_id`, `winning_attribute_uuid` e
+  `observations_evaluated`. Os componentes são os da observação vencedora.
+- `priority_score`, `rank` e `in_top_n` são por IOC lógico. O `rank` é denso pela
+  prioridade decrescente, com o mesmo desempate da agregação aplicado à observação
+  vencedora. `in_top_n` marca exatamente os `top_n` primeiros.
+- **Unicidade**: `(scoring_run_id, ioc_id)`.
+
+### Estatísticas de população (ajustes)
+
+- `sigma_by_category` (16 categorias, com o método e a regra σ = 0 aplicados),
+  `n_by_category_stats` (insumos do estimador), mínimos e máximos de cada escopo de
+  normalização e, por organização, `first_pairs`, `contribution`, `pagerank`,
+  `pagerank_norm`, `value`, `source_norm`.
+
+### Exclusão de score (motivos)
+
+`type_without_decay_group` (inclui `url`), `expired`, `not_to_ids`, `unpublished`,
+`missing_data` (TL, SA, timestamp, categoria ou `orgc` ausente ou desconhecido) e
+`incomplete_configuration`. Os motivos são avaliados por observação; o IOC recebe o
+motivo da sua observação ativa de maior precedência (`incomplete_configuration` >
+`missing_data` > `unpublished` > `not_to_ids` > `type_without_decay_group` > `expired`).
+A exclusão é registrada por IOC; um IOC com pelo menos uma observação válida não é
+excluído.
+
+### Peer MISP, política e tentativa (ajustes)
+
+- `sharing.peer_misp`: `peer_id`, `base_url`, `credential_secret_ref` (comentário
+  `secret`), `minimum_priority_score`, `distribution`, `sharing_group_uuid` opcional e
+  `outbound_event_uuid` (evento de saída local deste peer).
+- `sharing.politica_compartilhamento`: snapshot da política efetiva por inicialização
+  (`policy_hash`, `loaded_at`, `peers` sem segredos).
+- `sharing.tentativa_compartilhamento`: `peer_id`, `ioc_id`, `scoring_run_id`,
+  `policy_hash`, `outbound_attribute_uuid` (UUID v5 de `peer_id` + `ioc_id`),
+  `permitting_source_instance_id` e `permitting_attribute_uuid` (observação que tornou
+  o envio permitido), `outbound_distribution` (0–4) e `outbound_sharing_group_uuid`
+  opcional, estado
+  (`eligible`, `requested`, `confirmed`, `failed`, `ambiguous`, `ineligible`,
+  `suspended`), `attempts`, `next_attempt_at`, `last_error` seguro e timestamps.
+- **Unicidade**: uma tentativa corrente por `(peer_id, ioc_id)`.
+
+### Migrations
+
+| Revisão | Conteúdo |
+|---|---|
+| `0008_carioca_scoring` | `configuracao_carioca`, `execucao_scoring`, `estatisticas_populacao`, `avaliacao_observacao`, `resultado_score`, `exclusao_score` (schema `scoring`) |
+| `0009_rescoring_candidates` | `candidato_rescoring` (schema `scoring`) |
+| `0011_event_sharing_group` | `event_sharing_group_id` em `collection.observacao_origem` (nulo para dados legados até a recoleta) |
+| `0010_misp_sharing` | `peer_misp`, `politica_compartilhamento`, `tentativa_compartilhamento` (schema `sharing`) |
+
+As permissões seguem `0001_module_roles`: o papel do scoring escreve em `scoring` e
+`sharing`, e o `observer` lê tudo.
+
+### Tipos de domínio do ajuste de DDD
+
+Tipos sem persistência própria, que passam a carregar as regras hoje espalhadas em
+infraestrutura e `api.py` (etapas D1–D9 do plano). Todos são dataclasses congeladas.
+
+| Tipo | Módulo | Campos e comportamento |
+|---|---|---|
+| `SourceSnapshot` | `collection.domain` | `source_instance_id`, `generation`, `status`, `last_success_at`; `trusted(now, max_age) -> bool` (geração > 0, estado `completed`, último sucesso dentro de `max_age`). Substitui o SQL de `unavailable_blocking_sources` e a checagem em `scoring` |
+| `ObservationSnapshot` | `collection.domain` | `Observation` mais `ioc_id`, `normalized_value` e `input_revision` do IOC; `effective_distribution()` = menor entre `distribution` e `event_distribution` (`5` herda do evento) |
+| `CollectionSnapshot` | `collection.domain` | `sources`, `observations`, `warninglists`, `rejections`, lidos numa única transação `REPEATABLE READ` |
+| `WarninglistIndex` | `collection.domain` | Montado de uma lista de `WarninglistEntry` por origem; `match(kind, value, mode) -> True/False/None`. `mode="strict"`: entrada não suportada dá `None` (indeterminado). `mode="fr027"`: ignora a não suportada. Usa conjunto exato, sufixos de hostname e redes CIDR |
+| `IOC` | `collection.domain` | Já existe e passa a ser usado por `reconcile_snapshot` como identidade `(type, normalized_value)` |
+| `Changeset` | `collection.domain` | Saída de `reconcile_snapshot`: observações a inserir e atualizar, IOCs a criar, rejeições a gravar e resolver, remoções e o conjunto de `ioc_id` cuja revisão sobe. Recusa a reconciliação quando passa de `removal_ratio` |
+| `DecayGroup` | `scoring.domain` | `name`, `D`, `T`; `freshness(t_days) -> float | None` (tempo negativo dá `None`; `t >= T` dá 0). Usado pelo bloqueio simples (`domain`/`url`: 0,7; 365) e pelo CARIOCA |
+| `BlockingReason`, `ScoreModel` | `scoring.domain` | `StrEnum` com os valores já gravados no banco |
+| `BlockingDecision` | `scoring.domain` | Origem, UUID, `attribute_id` opcional, `block`, `reason`, `as_of`, `expires_at`, `generation`, evidência tipada. Gravada em `decisao_bloqueio` sem mudar colunas |
+| `RemoteEntry`, `ManagedEntry` | `sharing.domain` | `RemoteEntry` é a entrada do Pi-hole traduzida pelo adaptador (`id`, `comment`, `groups`, `enabled`); `ManagedEntry.is_owned_by(remote)` contém a regra de propriedade de hoje (`owned()`) |
+
+### Execução de scoring (estado)
+
+Estados `running`, `completed` e `failed`, iguais aos de `execucao_bloqueio` e
+`endpoint_coleta`. A Execução vigente é a última `completed`.
+
+### Elegibilidade de distribuição (domínio de `sharing`)
+
+`DistributionDecision(permitting_observation, distribution, sharing_group_uuid)` ou
+`None`. Regra: entre as observações ativas do IOC com evento publicado, considerar as
+de distribuição efetiva `1`, `2` ou `3`, ou `4` com o servidor do peer no sharing
+group; `0` nunca alcança. Escolher a mais restritiva (`1` < `2` < `3`; `4` conta como
+mais restritiva que `1`), com o desempate da agregação. Sem observação que alcance o
+peer, o motivo de inelegibilidade é `distribution_not_allowed`.
