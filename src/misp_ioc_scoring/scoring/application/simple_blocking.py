@@ -1,6 +1,8 @@
 """Build an explainable decision per observation and known rejection."""
 from collections import defaultdict
 from datetime import timedelta
+from typing import Protocol
+from uuid import uuid4
 
 from misp_ioc_scoring.collection.api import warninglist_index
 
@@ -50,3 +52,26 @@ def evaluate(snapshot, as_of, max_age):
             generation=snapshot.sources[key[0]].generation,
             evidence=BlockingEvidence(kind=item.misp_type, max_age_hours=max_age.total_seconds() / 3600,
                                       rejected=True))
+
+
+class BlockingStore(Protocol):
+    """Port: persists one blocking run atomically."""
+    def start(self, run_id, as_of): ...
+    def upsert(self, decisions): ...
+    def finish(self, run_id): ...
+
+
+def run_blocking(as_of, snapshot, max_age, store: BlockingStore, *, batch_size=1000):
+    """Evaluate the whole snapshot at one `as_of` and publish it as one run."""
+    run_id = uuid4()
+    store.start(run_id, as_of)
+    batch = []
+    for item in evaluate(snapshot, as_of, max_age):
+        batch.append(item)
+        if len(batch) == batch_size:
+            store.upsert(batch)
+            batch = []
+    if batch:
+        store.upsert(batch)
+    store.finish(run_id)
+    return run_id

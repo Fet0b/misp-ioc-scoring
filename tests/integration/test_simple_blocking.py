@@ -6,7 +6,7 @@ from sqlalchemy import text
 from misp_ioc_scoring.collection.domain.observations import Observation
 from misp_ioc_scoring.collection.infrastructure.persistence.repositories.observations import ObservationsRepository
 from misp_ioc_scoring.scoring.api import blocking_decision
-from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import run
+from misp_ioc_scoring.entrypoints.scoring_sharing import run_simple_blocking as run
 from misp_ioc_scoring.shared.database import transaction
 
 
@@ -65,3 +65,26 @@ def test_effective_decision_expires_and_observer_cannot_write(engine):
         observer.dispose()
         with engine.begin() as connection:
             connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))
+
+
+def test_runner_records_failure_and_skips_when_locked(engine):
+    from uuid import uuid4
+    import pytest
+    from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import BlockingRunner
+
+    run_id = uuid4()
+    now = datetime.now(timezone.utc)
+    with pytest.raises(RuntimeError):
+        with BlockingRunner(engine, uuid4) as store:
+            store.start(run_id, now)
+            raise RuntimeError("boom")
+    with engine.connect() as connection:
+        status, as_of = connection.execute(text(
+            "SELECT status, as_of FROM scoring.execucao_bloqueio WHERE id=:id"), {"id": run_id}).one()
+    assert (status, as_of) == ("failed", now)
+    with transaction(engine) as session:
+        session.execute(text("SELECT pg_advisory_xact_lock(874202)"))
+        with BlockingRunner(engine, uuid4) as store:
+            assert store is None
+    with engine.begin() as connection:
+        connection.execute(text("TRUNCATE scoring.execucao_bloqueio CASCADE"))

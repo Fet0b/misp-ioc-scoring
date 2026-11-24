@@ -44,7 +44,7 @@ def test_workers_start_only_enabled_jobs(monkeypatch, simple, pihole, expected):
 
     monkeypatch.setattr(scoring_sharing, "BlockingScheduler", Scheduler)
     monkeypatch.setattr(scoring_sharing, "engine_from_configuration", lambda config: Engine())
-    monkeypatch.setattr(scoring_sharing, "run", lambda *args: events.append("score"))
+    monkeypatch.setattr(scoring_sharing, "run_simple_blocking", lambda *args: events.append("score"))
     monkeypatch.setattr(scoring_sharing, "sync", lambda *args: events.append("share"))
     collector.main()
     scoring_sharing.main()

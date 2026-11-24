@@ -91,7 +91,7 @@ def test_worker_publishes_only_current_evidence_and_reconciles_after_recovery(st
 
     from misp_ioc_scoring.collection.domain.observations import Observation
     from misp_ioc_scoring.collection.infrastructure.persistence.repositories.observations import ObservationsRepository
-    from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import run
+    from misp_ioc_scoring.entrypoints.scoring_sharing import run_simple_blocking as run
 
     now = datetime.now(timezone.utc)
     attribute = uuid4()

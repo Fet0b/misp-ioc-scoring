@@ -1,11 +1,13 @@
 """Composition root for scoring and defensive DNS sharing."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import partial
+from uuid import uuid4
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import run
+from misp_ioc_scoring.scoring.application.simple_blocking import run_blocking
+from misp_ioc_scoring.scoring.infrastructure.persistence.simple_blocking import BlockingRunner
 from misp_ioc_scoring.scoring.infrastructure.scheduling.scheduler import add_scoring_job
 from misp_ioc_scoring.sharing.adapters.pihole import PiHole
 from misp_ioc_scoring.sharing.infrastructure.persistence.pihole import Store
@@ -25,6 +27,15 @@ def safe_job(name, job):
         log.error("%s_job_failed", name)
 
 
+def run_simple_blocking(engine, max_age_hours):
+    """Simple blocking job: lock, read `as_of` once, evaluate and publish."""
+    with BlockingRunner(engine, uuid4) as store:
+        if store is None:
+            return None
+        as_of = datetime.now(timezone.utc)
+        return run_blocking(as_of, store.snapshot, timedelta(hours=max_age_hours), store)
+
+
 def main():
     flags = [enabled(key) for key in ("SCORING_SIMPLE_ENABLED", "SCORING_CARIOCA_ENABLED",
                                     "SHARING_PIHOLE_ENABLED", "SHARING_MISP_ENABLED")]
@@ -35,7 +46,7 @@ def main():
     try:
         scheduler = BlockingScheduler(timezone="UTC")
         if config.simple_scoring_enabled:
-            score = partial(safe_job, "scoring", partial(run, engine, config.score_max_age_hours))
+            score = partial(safe_job, "scoring", partial(run_simple_blocking, engine, config.score_max_age_hours))
             add_scoring_job(scheduler, score, config.scoring_daily_cron)
         if config.pihole_enabled:
             client = PiHole(config.pihole_url, resolve_secret(config.pihole_password_secret_ref).get_secret_value(),

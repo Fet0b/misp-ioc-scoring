@@ -111,10 +111,10 @@ def build_fixture(engine, as_of):
 
 
 def run_simple_blocking(engine, as_of, monkeypatch):
-    from misp_ioc_scoring.scoring.infrastructure.persistence import simple_blocking
+    from misp_ioc_scoring.entrypoints import scoring_sharing
 
-    monkeypatch.setattr(simple_blocking, 'datetime', frozen(as_of))
-    simple_blocking.run(engine, MAX_AGE_HOURS)
+    monkeypatch.setattr(scoring_sharing, 'datetime', frozen(as_of))
+    scoring_sharing.run_simple_blocking(engine, MAX_AGE_HOURS)
 
 
 def run_pihole(engine, store, as_of, monkeypatch):
